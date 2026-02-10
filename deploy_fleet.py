@@ -29,8 +29,8 @@ def deploy_and_run():
         print(f"--- Processing {server['name']} ({server['host']}) ---")
         
         # 1. SCP the script to the remote server
-        print(f"Deploying script to {server['name']}...")
-        scp_cmd = f"scp -P {server['port']} parse_auth_log.py {server['user']}@{server['host']}:{REMOTE_PATH}"
+        print(f"Deploying scripts to {server['name']}...")
+        scp_cmd = f"scp -P {server['port']} parse_auth_log.py ai_engine.py {server['user']}@{server['host']}:/tmp/"
         run_command(scp_cmd)
 
         # 2. Run the script via SSH with sudo
@@ -38,7 +38,7 @@ def deploy_and_run():
         remote_out = f"/tmp/{server['name']}.json"
         ssh_cmd = (
             f"ssh -p {server['port']} {server['user']}@{server['host']} "
-            f"\"sudo rm -f {remote_out} && sudo python3 {REMOTE_PATH} --output {remote_out} > /dev/null\""
+            f"\"sudo rm -f {remote_out} && sudo python3 /tmp/parse_auth_log.py --output {remote_out} > /dev/null\""
         )
         run_command(ssh_cmd)
 

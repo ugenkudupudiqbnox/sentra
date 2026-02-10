@@ -4,6 +4,7 @@ import re
 import argparse
 import hashlib
 from datetime import datetime
+from ai_engine import AIEngine
 
 def generate_signal_id(signal_type, timestamp, hostname, user):
     """Generates a stable unique ID for a signal."""
@@ -243,6 +244,33 @@ def calculate_risk_score(signal_type, data):
     multiplier = conf_map.get(data.get("confidence", "medium"), 0.7)
     
     return round(min(score * multiplier, 1.0), 2)
+
+def enrich_signal_with_ai(signal_type, signal_data):
+    """
+    Attempts to enrich the signal using LLM insight, falling back to 
+    deterministic templates if necessary. Also indexes the signal in Vector DB.
+    """
+    # 1. Try AI enrichment
+    ai_narrative, ai_rec = AIEngine.consult_ai(signal_type, signal_data)
+    
+    if ai_narrative:
+        signal_data["narrative"] = ai_narrative
+    else:
+        signal_data["narrative"] = generate_narrative(signal_type, signal_data)
+        
+    if ai_rec:
+        signal_data["recommendation"] = ai_rec
+    else:
+        signal_data["recommendation"] = generate_recommendation(signal_type, signal_data)
+    
+    # 2. Index in Vector DB for correlation (Phase 2)
+    try:
+        AIEngine.index_signal(signal_data)
+    except Exception as e:
+        # Silently fail if DB is not available
+        pass
+        
+    return signal_data
 
 def generate_narrative(signal_type, data):
     """
@@ -510,8 +538,7 @@ def main():
                 "status": "open"
             }
             signal_data["risk_score"] = calculate_risk_score("ssh_access_pattern", signal_data)
-            signal_data["narrative"] = generate_narrative("ssh_access_pattern", signal_data)
-            signal_data["recommendation"] = generate_recommendation("ssh_access_pattern", signal_data)
+            signal_data = enrich_signal_with_ai("ssh_access_pattern", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
@@ -540,8 +567,7 @@ def main():
                 "status": "open"
             }
             signal_data["risk_score"] = calculate_risk_score("privilege_escalation", signal_data)
-            signal_data["narrative"] = generate_narrative("privilege_escalation", signal_data)
-            signal_data["recommendation"] = generate_recommendation("privilege_escalation", signal_data)
+            signal_data = enrich_signal_with_ai("privilege_escalation", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
@@ -565,8 +591,7 @@ def main():
                 "status": "open"
             }
             signal_data["risk_score"] = calculate_risk_score("iam_change", signal_data)
-            signal_data["narrative"] = generate_narrative("iam_change", signal_data)
-            signal_data["recommendation"] = generate_recommendation("iam_change", signal_data)
+            signal_data = enrich_signal_with_ai("iam_change", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
@@ -586,8 +611,7 @@ def main():
                     "status": "open"
                 }
                 signal_data["risk_score"] = calculate_risk_score("ssh_brute_force", signal_data)
-                signal_data["narrative"] = generate_narrative("ssh_brute_force", signal_data)
-                signal_data["recommendation"] = generate_recommendation("ssh_brute_force", signal_data)
+                signal_data = enrich_signal_with_ai("ssh_brute_force", signal_data)
                 all_signals.append(signal_data)
                 print(json.dumps(signal_data))
 
@@ -606,8 +630,7 @@ def main():
                 "status": "open"
             }
             signal_data["risk_score"] = calculate_risk_score("failed_auth", signal_data)
-            signal_data["narrative"] = generate_narrative("failed_auth", signal_data)
-            signal_data["recommendation"] = generate_recommendation("failed_auth", signal_data)
+            signal_data = enrich_signal_with_ai("failed_auth", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
