@@ -1,24 +1,73 @@
-# Project Context: Sentra
+# Sentra – Copilot Instructions
 
-Sentra is a lightweight tool for parsing system authentication logs (`/var/log/auth.log`).
+## Project Context
+Sentra is an open-source Linux security signal engine.
+Its goal is to convert Linux logs into low-noise, human-readable security signals and narratives.
 
-## Project Goals
-- Efficiently parse syslog-formatted authentication logs.
-- Extract key metadata: timestamp, hostname, program, user, and the raw message.
-- Output parsed data as JSON for further processing.
+Used in:
+- Managed hosting (Moodle, PressBooks, WordPress)
+- Managed SOC offerings
+- Compliance-focused environments
 
-## Technology Stack
-- **Language**: Python 3.x
-- **Libraries**: `json`, `re`, `sys` (standard library only for portability)
+---
 
-## Domain Specific Knowledge
-- **Log Source**: Typically `/var/log/auth.log` on Linux systems.
-- **Log Formats**: Supports standard syslog formats from `sshd`, `sudo`, and `cron`.
+## Core Principles (Do Not Violate)
 
-## Coding Preferences
-- Use standard libraries where possible to minimize dependencies.
-- Use regex for pattern matching in log messages.
-- Ensure error handling for file access and parsing issues.
+1. Signals over events
+2. Low volume output
+3. Non-alarmist language
+4. Deterministic logic
+5. Customer trust first
 
-## Workflow & Constraints
-- Do not commit or push code changes (check-in) unless explicitly instructed by the user.
+---
+
+## Canonical Signals (v0.3)
+
+- ssh_access_pattern
+  - single_ip_access
+  - multi_ip_access
+
+- privilege_escalation
+  - high: persistent security changes
+  - normal: routine admin work
+
+No new external signals without review.
+
+---
+
+## AI Usage Rules
+
+AI may:
+- Generate narratives
+- Format weekly reports
+
+AI must not:
+- Decide severity
+- Trigger actions
+- Change logic
+
+---
+
+## Weekly Report Rules
+
+Overall risk values:
+- Low
+- Low (Reviewed)
+- Action Recommended
+
+High severity does not automatically imply elevated risk.
+
+---
+
+## What Not to Build
+
+- Dashboards
+- Alert floods
+- Autonomous remediation
+- Raw log exposure
+
+---
+
+## North Star
+
+If the customer does not need to care, do not emit a signal.
