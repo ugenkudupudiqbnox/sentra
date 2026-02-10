@@ -1,4 +1,16 @@
 ```
+Raw Log
+   ↓
+Kafka (single source of truth)
+   ↓
+Stream Processing / Signal Factory
+   ├──► Elastic        (only if searchable)
+   ├──► ClickHouse     (only aggregates)
+   ├──► Vector DB      (only embeddings)
+   └──► AI Control     (only signals)
+```
+
+```
                            ┌───────────────────────────┐
                            │     DATA COLLECTION       │
                            │ (Agents / Collectors)     │
