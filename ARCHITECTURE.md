@@ -191,6 +191,26 @@ This is **game-changing** for auditors.
 
 ---
 
+## 💎 The Enrichment Lifecycle: Turning Noise into Meaning
+
+Enrichment is where a raw log event earns its "Security Signal" status. In our AI-native control plane, enrichment happens at three stages:
+
+### 1. Static Enrichment (at Ingestion)
+- **Identity Mapping**: Converting `stpi` to `Employee ID 88219 (SRE Team)`.
+- **Asset Role**: Tagging the host as `Tier 1: Production Database` vs `Tier 3: Dev Sandbox`.
+- **Geo-IP**: Mapping `1.1.1.1` to its physical location and ISP.
+
+### 2. Dynamic Intelligence (Real-Time)
+- **Threat Intel**: Querying IP reputation (AbuseIPDB, VirusTotal) for current maliciousness.
+- **TTP Mapping**: Matching commands to **MITRE ATT&CK** techniques (e.g., `rm -rf` → `T1485 Data Destruction`).
+- **Compliance Tagging**: Labeling events with **SOC 2** controls (e.g., `CC6.1 Access Management`).
+
+### 3. Behavioral Enrichment (Contextual)
+- **Frequency Analysis**: "User has run `sudo` 5 times in the last 10 minutes (3σ above baseline)."
+- **Vector Similarity**: "This command pattern is 92% similar to a known data-exfiltration TTP in our Vector DB."
+
+---
+
 ## 🧠 Component Breakdown
 
 ### 🔹 1. Signal Normalizer & Enricher

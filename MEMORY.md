@@ -24,7 +24,12 @@ This file tracks the history of tasks, decisions, and current state of the Sentr
 - Implemented `generate_recommendation` in `parse_auth_log.py` to provide actionable mitigation steps.
 
 ## TODO / Next Steps
-- Implement real-time log tailing (using `tail -f` or a persistent watcher) to reduce alert latency from "batch" to "near real-time".
-- Add support for application-level logs (Moodle, WordPress).
-- Develop a lean web UI for exploring the signal timeline.
-- Refine risk weighting based on historical fleet baseline.
+- **Transition to Streaming Architecture**: Migrate from batch parsing (`parse_auth_log.py`) to a persistent Kafka/Flink pipeline for real-time signal logic.
+- **Advanced Cross-Signal Correlation**: Implement logic in `ai_engine.py` to use ChromaDB similarity searches for linking disparate events into unified narratives.
+- **Dynamic Enrichment Service**:
+    - **Threat Intel**: Integrate IP reputation APIs (AbuseIPDB, VirusTotal) to enrich log signals.
+    - **Identity Correlation**: Map local Unix usernames to organizational identities (LDAP/AzureAD).
+    - **Asset Intelligence**: Inject server roles (e.g., "Production DB", "Edge Proxy") from a CMDB into every signal.
+- **MITRE ATT&CK & SOC2 Mapping**: Automate the tagging of signals with specific TTPs and compliance controls for enhanced auditor evidence.
+- **Analyst Decision Interface**: Develop a lean UI for exploring the signal timeline and managing `overrides.json` across the fleet.
+- **Scale-Out AI Engine**: Decouple the embedding and narrative generation into a standalone microservice to support high-throughput log streams.
