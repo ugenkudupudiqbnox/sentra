@@ -17,6 +17,15 @@ Stream Processing / Signal Factory
 | ClickHouse       | ❌ NO               | Aggregates & rollups       |
 | Vector DB        | ❌ NO               | Embeddings of signals      |
 | AI Control Plane | ❌ NO               | Decisions & narratives     |
+
+| System           | Hot/Warm/Cold needed? | Why                          |
+| ---------------- | --------------------- | ---------------------------- |
+| Kafka            | ❌ No                  | Retention buffer, not search |
+| Elastic          | ✅ Yes                 | Cost + performance           |
+| ClickHouse       | ⚠️ Partial            | TTL & rollups instead        |
+| Vector DB        | ❌ No                  | Semantic memory, small       |
+| AI Control Plane | ❌ No                  | Decision ledger              |
+
 ```
 ## Cost math (why this matters)
 
