@@ -5,21 +5,22 @@ This file tracks the history of tasks, decisions, and current state of the Sentr
 ## Last Updated: 2026-02-11
 
 ## Current State
-- `parse_auth_log.py` supports advanced adversarial signal detection (SSH brute force, administrative auth failures).
-- Phase 3 Enrichment & Compliance Mapping is complete:
-    - Commands mapped to MITRE ATT&CK (e.g., T1078, T1021) and SOC2 (e.g., CC6.1, CC7.1).
-    - Probabilistic risk scoring weighted by command intent.
-    - Automated "Audit Evidence Bundle" generation for auditors.
+- `parse_auth_log.py` supports advanced adversarial signal detection and Phase 4 AI recommendations.
+- Phase 4 SOAR & Outcome Automation is complete:
+    - AI-Recommended actions for every signal type.
+    - Slack/Webhook notification framework (`notify.py`).
+    - Justification and outcome tracking in aggregated reports.
+- Fleet deployment includes automated priority alerting for signals with risk scores ≥ 0.5.
 
 ## Recent Changes
-- Implemented adversarial failure parsing (`ssh_brute_force`, `failed_auth`) with specialized regex for production log patterns (`conversation failed`, `Invalid user`).
-- Added Phase 3 `COMMAND_INTENT_MAP` for identity, maintenance, and network configuration intents.
-- Updated `aggregate_weekly.py` to include Intent Distribution and failure metrics in fleet narratives.
-- Created `generate_audit_bundle.py` to automate the collection of audit-ready evidence (SOC2/ISO).
-- Refined `FLEET_REPORT.md` with MITRE/SOC2 tags and improved executive summaries.
+- Implemented `generate_recommendation` in `parse_auth_log.py` to provide actionable mitigation steps.
+- Created `notify.py` for ticketing and Slack integration (Phase 4).
+- Updated `aggregate_weekly.py` to include "Priority Playbooks" and "Outcome/Justification" logs in the narrative.
+- Integrated `notify.py` into the `deploy_fleet.py` workflow for real-time (stdout/Slack) alerting.
+- Updated documentation to reflect v0.4 (Phase 4) capabilities.
 
 ## TODO / Next Steps
-- Add support for more log sources (e.g., `pau-linux`, custom application logs).
-- Implement real-time alerting (Slack/Webhook) for "Action Recommended" signals.
-- Add unit tests for `categorize_command` and `parse_line` regex edge cases.
-- Consider a web-based dashboard for signal visualization beyond Markdown.
+- Implement real-time log tailing (using `tail -f` or a persistent watcher) to reduce alert latency from "batch" to "near real-time".
+- Add support for application-level logs (Moodle, WordPress).
+- Develop a lean web UI for exploring the signal timeline.
+- Refine risk weighting based on historical fleet baseline.

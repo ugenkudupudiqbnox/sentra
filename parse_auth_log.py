@@ -290,6 +290,36 @@ def generate_narrative(signal_type, data):
 
     return "Routine security event recorded. No action required."
 
+def generate_recommendation(signal_type, data):
+    """
+    Phase 4: AI-Recommended Actions.
+    Suggests specific, actionable mitigation steps based on signal risk and type.
+    """
+    risk_score = data.get("risk_score", 0.0)
+    
+    if signal_type == "ssh_brute_force":
+        if risk_score > 0.6:
+            return "Critical: Threshold exceeded. Recommendation: Place IP on temporary firewall blocklist and verify account MFA status."
+        return "Insight: Automated probe detected. Recommendation: Ensure password-based authentication is disabled for this user."
+
+    if signal_type == "privilege_escalation":
+        if data.get("intent") == "Identity Management":
+            return "Audit Tip: Review this change against the authorized maintenance window or ticket. No immediate technical action required."
+        if data.get("intent") == "Impact / Destructive":
+            return "High Priority: Destructive command detected. Recommendation: Verify authorization immediately and inspect system integrity logs."
+        return "Insight: Routine administrative task. No action needed."
+
+    if signal_type == "iam_change":
+        return "Compliance Step: Ensure the newly created or modified user is assigned to a specific business owner in your IAM registry."
+
+    if signal_type == "ssh_access_pattern" and data.get("pattern") == "multi_ip_access":
+        return "Precaution: Confirm this user was traveling or using a VPN during this period. If not, consider a password reset."
+
+    if signal_type == "failed_auth" and data.get("failure_count", 0) > 5:
+        return "Investigation: Repeated administrative failures detected. Recommendation: Check for stale credentials in local automation scripts."
+
+    return "No actionable recommendation for routine events."
+
 def generate_weekly_summary(signals):
     """
     Generates a concise weekly security summary for a non-technical customer.
@@ -481,6 +511,7 @@ def main():
             }
             signal_data["risk_score"] = calculate_risk_score("ssh_access_pattern", signal_data)
             signal_data["narrative"] = generate_narrative("ssh_access_pattern", signal_data)
+            signal_data["recommendation"] = generate_recommendation("ssh_access_pattern", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
@@ -510,6 +541,7 @@ def main():
             }
             signal_data["risk_score"] = calculate_risk_score("privilege_escalation", signal_data)
             signal_data["narrative"] = generate_narrative("privilege_escalation", signal_data)
+            signal_data["recommendation"] = generate_recommendation("privilege_escalation", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
@@ -534,6 +566,7 @@ def main():
             }
             signal_data["risk_score"] = calculate_risk_score("iam_change", signal_data)
             signal_data["narrative"] = generate_narrative("iam_change", signal_data)
+            signal_data["recommendation"] = generate_recommendation("iam_change", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
@@ -554,6 +587,7 @@ def main():
                 }
                 signal_data["risk_score"] = calculate_risk_score("ssh_brute_force", signal_data)
                 signal_data["narrative"] = generate_narrative("ssh_brute_force", signal_data)
+                signal_data["recommendation"] = generate_recommendation("ssh_brute_force", signal_data)
                 all_signals.append(signal_data)
                 print(json.dumps(signal_data))
 
@@ -573,6 +607,7 @@ def main():
             }
             signal_data["risk_score"] = calculate_risk_score("failed_auth", signal_data)
             signal_data["narrative"] = generate_narrative("failed_auth", signal_data)
+            signal_data["recommendation"] = generate_recommendation("failed_auth", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 

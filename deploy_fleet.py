@@ -56,5 +56,16 @@ def deploy_and_run():
     agg_cmd = f"python3 aggregate_weekly.py {' '.join(json_files)}"
     subprocess.run(agg_cmd, shell=True)
 
+    # 5. Phase 4: Trigger Alerts for high-risk signals
+    print("\n--- Phase 4: Checking for Priority Alerts ---")
+    for local_target in json_files:
+        if os.path.exists(local_target):
+            with open(local_target, "r") as f:
+                for line in f:
+                    signal = json.loads(line)
+                    if signal.get("risk_score", 0) >= 0.5:
+                        # Pipe high-risk signal to notify.py
+                        subprocess.run("python3 notify.py", input=line, shell=True, text=True)
+
 if __name__ == "__main__":
     deploy_and_run()

@@ -221,6 +221,15 @@ def generate_markdown_report(fleet_summary, signals):
             
         md.append(f"- **Narrative**: {s.get('narrative', 'No narrative available.')}")
         
+        # Phase 4: AI Recommendations
+        if s.get('recommendation'):
+            md.append(f"- **🤖 AI Recommendation**: *{s['recommendation']}*")
+            
+        # Phase 4: Outcome & Justification
+        if s.get('status') in ['RESOLVED', 'REVIEWED']:
+            note = s.get('analyst_note', 'No analyst notes provided.')
+            md.append(f"- **Outcome**: ✅ `{s['status']}` | **Justification**: {note}")
+
         if s.get('signal') == 'privilege_escalation' and 'commands' in s:
             md.append("- **Audit Details**:")
             for cmd in s['commands']:
@@ -233,6 +242,14 @@ def generate_markdown_report(fleet_summary, signals):
     md.append("## 4. AI Handover Notes")
     md.append("Summarizing critical state for shift continuity:")
     
+    # Phase 4: Actionable Recommendations Summary
+    critical_recs = [s.get('recommendation') for s in signals if s.get('risk_score', 0) >= 0.5 and s.get('recommendation')]
+    if critical_recs:
+        md.append("### 🤖 Priority Playbooks")
+        for rec in list(set(critical_recs))[:3]: # Show top 3 unique recommendations
+            md.append(f"- **Suggested Action**: {rec}")
+        md.append("")
+
     high_risk_signals = [s for s in signals if s.get('risk_score', 0) >= 0.5]
     if high_risk_signals:
         md.append(f"- **High Risk Focus**: There are {len(high_risk_signals)} signals with a risk score ≥ 0.5. These primarily involve sensitive administrative changes.")

@@ -63,6 +63,13 @@ Sentra automates the mapping of security signals to global standards:
 - **Intent Classification**: Uses regex-based behavioral analysis to categorize administrative actions (Maintenance vs. Identity Management vs. Credential Access).
 - **Audit Evidence Bundle**: A single-command utility (`generate_audit_bundle.py`) to aggregate all reports, decisions, and raw evidence into a timestamped zip archive for auditors.
 
+### Phase 4: SOAR & Outcome Automation
+Sentra turns insights into specific actions:
+- **AI-Recommended Actions**: Every signal include a context-aware "Recommended Action" (e.g., "Verify authorization" or "Block IP").
+- **Priority Alerts**: Integrated notification system (`notify.py`) for Slack or Webhook delivery of high-risk signals.
+- **Action Justification Logs**: Analyst notes and outcomes (Resolved/Reviewed) are captured and displayed in the weekly summary for audit continuity.
+- **Priority Playbooks**: Automated grouping of suggested mitigations in the fleet executive report.
+
 ### Human-First Output
 Every signal includes:
 - Calm, plain-language explanations
