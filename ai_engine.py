@@ -1,6 +1,10 @@
 import os
 import json
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load local environment variables if present
+load_dotenv()
 
 # Optional dependencies for Phase 2 AI
 try:

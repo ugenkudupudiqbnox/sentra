@@ -2,6 +2,10 @@ import sys
 import json
 import urllib.request
 import os
+from dotenv import load_dotenv
+
+# Load local environment variables if present
+load_dotenv()
 
 SLACK_WEBHOOK_URL = os.environ.get("SENTRA_SLACK_WEBHOOK", "")
 SOAR_WEBHOOK_URL = os.environ.get("SENTRA_SOAR_WEBHOOK", "")
