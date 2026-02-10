@@ -18,6 +18,22 @@ Stream Processing / Signal Factory
 | Vector DB        | ❌ NO               | Embeddings of signals      |
 | AI Control Plane | ❌ NO               | Decisions & narratives     |
 ```
+## Cost math (why this matters)
+
+If you naïvely fan-out:
+
+* 10 PB logs → 50 PB stored
+* Unmanageable
+* Splunk-level pricing
+
+If you do it right:
+
+* 10 PB raw (cheap object/Kafka tiered)
+* 100–300 TB hot search
+* <10 TB vectors
+* <50 TB analytics
+
+That’s order-of-magnitude cheaper.
 
 ```
                            ┌───────────────────────────┐
