@@ -56,6 +56,22 @@ If you do it right:
 
 That’s order-of-magnitude cheaper.
 
+## Why Splunk overbuilt indexers
+
+Splunk assumed:
+
+```
+Search = primary workflow
+```
+## Modern SOC reality:
+
+```
+Signals & AI = primary workflow
+Search = escalation path
+```
+
+Once you internalize this, the cost model collapses in your favor.
+
 ```
                            ┌───────────────────────────┐
                            │     DATA COLLECTION       │
