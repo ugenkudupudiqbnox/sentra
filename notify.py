@@ -4,6 +4,41 @@ import urllib.request
 import os
 
 SLACK_WEBHOOK_URL = os.environ.get("SENTRA_SLACK_WEBHOOK", "")
+SOAR_WEBHOOK_URL = os.environ.get("SENTRA_SOAR_WEBHOOK", "")
+SOAR_API_KEY = os.environ.get("SENTRA_SOAR_API_KEY", "")
+
+def send_soar_event(signal):
+    """
+    Phase 4+: SOAR Integration (Shuffle/Tines).
+    Sends a universal JSON payload to a SOAR platform for automated response.
+    """
+    if not SOAR_WEBHOOK_URL:
+        return
+
+    # Metadata for SOAR routing and orchestration
+    payload = {
+        "event_type": "sentra_security_signal",
+        "timestamp_utc": signal.get("timestamp"),
+        "severity": "CRITICAL" if signal.get("risk_score", 0) >= 0.7 else "HIGH",
+        "source": "sentra-signal-engine-v0.4",
+        "data": signal,
+        "context": {
+            "is_actionable": True,
+            "requires_human_approval": signal.get("risk_score", 0) < 0.8
+        }
+    }
+
+    try:
+        req = urllib.request.Request(SOAR_WEBHOOK_URL)
+        req.add_header('Content-Type', 'application/json')
+        if SOAR_API_KEY:
+            req.add_header('X-API-Key', SOAR_API_KEY)
+            
+        with urllib.request.urlopen(req, data=json.dumps(payload).encode('utf-8')) as response:
+            print(f"SOAR event sent successfully: {SOAR_WEBHOOK_URL}")
+            return response.read()
+    except Exception as e:
+        print(f"Error sending SOAR event: {e}", file=sys.stderr)
 
 def send_slack_notification(signal):
     """
@@ -50,5 +85,6 @@ if __name__ == "__main__":
         data = json.load(sys.stdin)
         if data.get("overall_risk") == "Action Recommended" or data.get("risk_score", 0) >= 0.5:
             send_slack_notification(data)
+            send_soar_event(data)
     except Exception as e:
         print(f"Error: {e}")

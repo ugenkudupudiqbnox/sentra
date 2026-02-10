@@ -9,14 +9,16 @@ This file tracks the history of tasks, decisions, and current state of the Sentr
 - Phase 4 SOAR & Outcome Automation is complete:
     - AI-Recommended actions for every signal type.
     - Slack/Webhook notification framework (`notify.py`).
+    - **SOAR Integration**: Pre-configured universal webhooks for platforms like **Shuffle** and **Tines**.
     - Justification and outcome tracking in aggregated reports.
 - Fleet deployment includes automated priority alerting for signals with risk scores ≥ 0.5.
 
 ## Recent Changes
 - Implemented `generate_recommendation` in `parse_auth_log.py` to provide actionable mitigation steps.
-- Created `notify.py` for ticketing and Slack integration (Phase 4).
+- Created `notify.py` for ticketing and Slack/SOAR integration (Phase 4).
+- Added dedicated `SOAR_INTEGRATION.md` guide for Shuffle and Tines.
 - Updated `aggregate_weekly.py` to include "Priority Playbooks" and "Outcome/Justification" logs in the narrative.
-- Integrated `notify.py` into the `deploy_fleet.py` workflow for real-time (stdout/Slack) alerting.
+- Integrated `notify.py` into the `deploy_fleet.py` workflow for real-time (stdout/Slack/SOAR) alerting.
 - Updated documentation to reflect v0.4 (Phase 4) capabilities.
 
 ## TODO / Next Steps
