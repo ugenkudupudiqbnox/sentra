@@ -21,6 +21,7 @@ This file tracks the history of tasks, decisions, and current state of the Sentr
 - Refactored `parse_auth_log.py` to use `AIEngine` for enrichment and indexing.
 - Defined three-tier enrichment strategy (Static, Dynamic, Behavioral) in documentation.
 - Created `KAFKA_PLAYBOOK.md` outlining the high-throughput infrastructure required for PB-scale log ingestion.
+- Created `FLINK_PLAYBOOK.md` documentation for real-time signal processing and windowed correlation at scale.
 - Updated `deploy_fleet.py` to deploy the AI-native engine across the fleet.
 
 ## TODO / Next Steps
