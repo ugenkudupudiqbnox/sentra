@@ -76,8 +76,12 @@ def parse_line(line):
 
 def main():
     log_path = '/var/log/auth.log'
-    ssh_groups = {}  # (user, ip, host, window) -> count
-    priv_groups = {} # (user, host, window) -> [commands]
+    ssh_groups = {}        # (user, ip, host, window) -> count
+    ssh_access_groups = {} # (user, host, window) -> set of IPs
+    priv_groups = {}       # (user, host, window) -> [commands]
+
+    # High-risk command keywords
+    HIGH_RISK_KEYWORDS = ['visudo', 'passwd', 'chmod', 'chown', 'rm -rf', 'tee /etc/sudoers', 'usermod']
 
     try:
         with open(log_path, 'r') as f:
@@ -89,16 +93,31 @@ def main():
                 ts = event['timestamp']
                 
                 if event['type'] == 'ssh_login':
-                    window = int(ts.timestamp() // 300) * 300
-                    key = (event['user'], event['ip'], event['hostname'], window)
-                    ssh_groups[key] = ssh_groups.get(key, 0) + 1
+                    # 5-min window
+                    win_5 = int(ts.timestamp() // 300) * 300
+                    key_5 = (event['user'], event['ip'], event['hostname'], win_5)
+                    ssh_groups[key_5] = ssh_groups.get(key_5, 0) + 1
+
+                    # 1-hour window for access pattern
+                    win_1h = int(ts.timestamp() // 3600) * 3600
+                    key_1h = (event['user'], event['hostname'], win_1h)
+                    if key_1h not in ssh_access_groups:
+                        ssh_access_groups[key_1h] = set()
+                    ssh_access_groups[key_1h].add(event['ip'])
                 
                 elif event['type'] == 'privilege_escalation':
                     window = int(ts.timestamp() // 600) * 600
                     key = (event['user'], event['hostname'], window)
                     if key not in priv_groups:
                         priv_groups[key] = []
-                    priv_groups[key].append(event['command'])
+                    
+                    # Classify command
+                    cmd = event['command']
+                    is_high_risk = any(kw in cmd for kw in HIGH_RISK_KEYWORDS)
+                    priv_groups[key].append({
+                        "command": cmd,
+                        "risk": "high" if is_high_risk else "normal"
+                    })
 
         # Emit Aggregated Signals
         for (user, ip, host, window), count in ssh_groups.items():
@@ -111,13 +130,23 @@ def main():
                 "login_count": count
             }))
 
-        for (user, host, window), commands in priv_groups.items():
+        for (user, host, window), ips in ssh_access_groups.items():
+            print(json.dumps({
+                "signal": "ssh_access_pattern",
+                "timestamp": datetime.fromtimestamp(window).isoformat(),
+                "hostname": host,
+                "user": user,
+                "unique_ips": list(ips),
+                "ip_count": len(ips)
+            }))
+
+        for (user, host, window), entries in priv_groups.items():
             print(json.dumps({
                 "signal": "privilege_escalation",
                 "timestamp": datetime.fromtimestamp(window).isoformat(),
                 "hostname": host,
                 "user": user,
-                "commands": commands
+                "commands": entries
             }))
 
     except FileNotFoundError:
@@ -126,9 +155,6 @@ def main():
         print(f"Error: Permission denied reading {log_path}.", file=sys.stderr)
     except Exception as e:
         print(f"An error occurred: {e}", file=sys.stderr)
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()
