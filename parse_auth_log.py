@@ -74,6 +74,32 @@ def parse_line(line):
 
     return None
 
+def generate_narrative(signal_type, data):
+    """
+    Generates a neutral, non-alarmist incident narrative for non-technical customers.
+    """
+    if signal_type == "ssh_access_pattern":
+        if data.get("pattern") == "multi_ip_access":
+            return (
+                f"Your account '{data['user']}' was accessed from {data['ip_count']} different network locations within one hour. "
+                "This often occurs when using multiple devices or transitioning between networks, but is recorded for visibility. "
+                "No action is required unless you do not recognize this activity."
+            )
+        else:
+            return f"A standard login was recorded for user '{data['user']}'. This is routine system access. No action is required."
+
+    if signal_type == "privilege_escalation":
+        if data.get("severity") == "high":
+            return (
+                f"User '{data['user']}' performed administrative changes to system security or user permissions. "
+                "These actions are typical during system maintenance but are highlighted to ensure they were intended. "
+                "Please consult your technical team if these changes were not authorized."
+            )
+        else:
+            return f"User '{data['user']}' performed routine administrative tasks. This is part of normal system operation. No action is required."
+    
+    return "Routine security event recorded. No action required."
+
 def main():
     log_path = '/var/log/auth.log'
     ssh_groups = {}        # (user, ip, host, window) -> count
@@ -123,7 +149,7 @@ def main():
         # 1) SSH Access Patterns (1-hour)
         for (user, host, window), ips in ssh_access_groups.items():
             pattern = "multi_ip_access" if len(ips) > 1 else "single_ip_access"
-            print(json.dumps({
+            signal_data = {
                 "signal": "ssh_access_pattern",
                 "timestamp": datetime.fromtimestamp(window).isoformat(),
                 "hostname": host,
@@ -131,19 +157,23 @@ def main():
                 "unique_ips": list(ips),
                 "ip_count": len(ips),
                 "pattern": pattern
-            }))
+            }
+            signal_data["narrative"] = generate_narrative("ssh_access_pattern", signal_data)
+            print(json.dumps(signal_data))
 
         # 2) Privilege Escalation (10-min)
         for (user, host, window), entries in priv_groups.items():
             severity = "high" if any(e['risk'] == 'high' for e in entries) else "normal"
-            print(json.dumps({
+            signal_data = {
                 "signal": "privilege_escalation",
                 "timestamp": datetime.fromtimestamp(window).isoformat(),
                 "hostname": host,
                 "user": user,
                 "severity": severity,
                 "commands": entries
-            }))
+            }
+            signal_data["narrative"] = generate_narrative("privilege_escalation", signal_data)
+            print(json.dumps(signal_data))
 
     except FileNotFoundError:
         print(f"Error: {log_path} not found.", file=sys.stderr)
