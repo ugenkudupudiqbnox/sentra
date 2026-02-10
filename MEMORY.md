@@ -19,9 +19,9 @@ This file tracks the history of tasks, decisions, and current state of the Sentr
 ## Recent Changes
 - Implemented `ai_engine.py` using `openai` and `chromadb`.
 - Refactored `parse_auth_log.py` to use `AIEngine` for enrichment and indexing.
+- Defined three-tier enrichment strategy (Static, Dynamic, Behavioral) in documentation.
+- Created `KAFKA_PLAYBOOK.md` outlining the high-throughput infrastructure required for PB-scale log ingestion.
 - Updated `deploy_fleet.py` to deploy the AI-native engine across the fleet.
-- Added graceful fallbacks for systems without AI dependencies.
-- Implemented `generate_recommendation` in `parse_auth_log.py` to provide actionable mitigation steps.
 
 ## TODO / Next Steps
 - **Transition to Streaming Architecture**: Migrate from batch parsing (`parse_auth_log.py`) to a persistent Kafka/Flink pipeline for real-time signal logic.

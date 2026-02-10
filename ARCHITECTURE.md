@@ -418,7 +418,7 @@ You go from zero → working prototype that beats SIEM semantics.
 ## System Components (v0.4)
 
 ### 1. Signal Engine (`parse_auth_log.py`)
-The heart of Sentra. It performs behavioral analysis on `/var/log/auth.log` by:
+The heart of Sentra. It performs behavioral analysis on `/var/log/auth.log`. For PB-scale ingestion deployment architectures, refer to the [Kafka Playbook](KAFKA_PLAYBOOK.md).
 - **Normalization**: Parsing varied timestamp and log formats into standard events.
 - **Aggregation**: Grouping events into 10-minute and 1-hour behavioral windows.
 - **Enrichment (Phase 3)**: Mapping commands to **MITRE ATT&CK** tactics and **SOC2** controls.
