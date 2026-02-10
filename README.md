@@ -48,7 +48,20 @@ Application-specific signals (Moodle, PressBooks, WordPress) are layered on top.
 Sentra reduces raw events into security signals that represent behavior over time, such as:
 - Access patterns
 - Privileged activity
+
+### Risk Scoring & Analyst Workflow (Phase 2)
+Sentra uses a probabilistic risk model ($0.0$ to $1.0$) to prioritize signals. Each signal includes a stable, unique ID (e.g., `381521c2a0c1`) that allows analysts to:
+- **Correlate** activity across the fleet.
+- **Override** signals using an `overrides.json` file to resolve routine maintenance window activities.
+- **Maintain Continuity** via a dedicated "AI Handover Notes" section in the weekly executive report.
 - Security-sensitive configuration changes
+
+### Phase 3: Compliance & Enrichment
+Sentra automates the mapping of security signals to global standards:
+- **MITRE ATT&CK Tracking**: Signals are tagged with specific tactics and techniques (e.g., T1078, T1021).
+- **SOC 2 & ISO 27001 Evidence**: Direct mapping to trust services criteria (CC6.1, CC7.1) for auditor-ready reporting.
+- **Intent Classification**: Uses regex-based behavioral analysis to categorize administrative actions (Maintenance vs. Identity Management vs. Credential Access).
+- **Audit Evidence Bundle**: A single-command utility (`generate_audit_bundle.py`) to aggregate all reports, decisions, and raw evidence into a timestamped zip archive for auditors.
 
 ### Human-First Output
 Every signal includes:

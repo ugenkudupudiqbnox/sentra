@@ -2,7 +2,65 @@ import sys
 import json
 import re
 import argparse
+import hashlib
 from datetime import datetime
+
+def generate_signal_id(signal_type, timestamp, hostname, user):
+    """Generates a stable unique ID for a signal."""
+    raw = f"{signal_type}|{timestamp}|{hostname}|{user}"
+    return hashlib.md5(raw.encode()).hexdigest()[:12]
+
+# Phase 3: Enrichment & Compliance Mapping
+COMMAND_INTENT_MAP = {
+    r'apt|dpkg|snap|flatpak|pip': {
+        'intent': 'Maintenance', 
+        'mitre': 'T1072', 
+        'compliance': 'SOC2_CC7.1',
+        'risk_weight': 0.1
+    },
+    r'useradd|usermod|userdel|passwd|visudo|groupadd|groupmod|sudoers': {
+        'intent': 'Identity Management', 
+        'mitre': 'T1078', 
+        'compliance': 'SOC2_CC6.1',
+        'risk_weight': 0.4
+    },
+    r'ssh|scp|sftp|rsync|curl|wget': {
+        'intent': 'Lateral Movement / Data Transfer', 
+        'mitre': 'T1021', 
+        'compliance': 'SOC2_CC6.6',
+        'risk_weight': 0.2
+    },
+    r'shadow|gshadow|private-key|ssh/.*_id': {
+        'intent': 'Credential Access', 
+        'mitre': 'T1003', 
+        'compliance': 'SOC2_CC6.1',
+        'risk_weight': 0.6
+    },
+    r'ufw|iptables|firewall|nft|ip ': {
+        'intent': 'Network Configuration', 
+        'mitre': 'T1562', 
+        'compliance': 'SOC2_CC6.6',
+        'risk_weight': 0.3
+    },
+    r'rm -rf /|dd |mkfs|shutdown|reboot': {
+        'intent': 'Impact / Destructive', 
+        'mitre': 'T1485', 
+        'compliance': 'SOC2_CC7.1',
+        'risk_weight': 0.8
+    }
+}
+
+def categorize_command(command):
+    """Maps a command to its intent and compliance tags."""
+    for pattern, metadata in COMMAND_INTENT_MAP.items():
+        if re.search(pattern, command):
+            return metadata
+    return {
+        'intent': 'General Administration', 
+        'mitre': 'N/A', 
+        'compliance': 'N/A', 
+        'risk_weight': 0.0
+    }
 
 def parse_timestamp(ts_str):
     """
@@ -46,50 +104,100 @@ def parse_line(line):
     if not dt:
         return None
 
-    # 1) ssh_login: sshd accepts a publickey
-    if program == 'sshd' and 'Accepted publickey' in message:
-        # Example: Accepted publickey for stpi from 49.204.255.1 port 27141 ssh2: RSA ...
-        match = re.search(r'for\s+(\S+)\s+from\s+(\S+)', message)
-        if match:
-            return {
-                "type": "ssh_login",
-                "timestamp": dt,
-                "hostname": data['hostname'],
-                "user": match.group(1),
-                "ip": match.group(2),
-                "confidence": "high"
-            }
+    # 1) ssh_login: sshd accepts a publickey or failed password
+    if program == 'sshd':
+        if 'Accepted publickey' in message:
+            # Example: Accepted publickey for stpi from 49.204.255.1 port 27141 ssh2: RSA ...
+            match = re.search(r'for\s+(\S+)\s+from\s+(\S+)', message)
+            if match:
+                return {
+                    "type": "ssh_login",
+                    "timestamp": dt,
+                    "hostname": data['hostname'],
+                    "user": match.group(1),
+                    "ip": match.group(2),
+                    "confidence": "high"
+                }
+        elif 'Failed password' in message or 'Invalid user' in message or 'Connection closed by authenticating user' in message:
+            # Example: Failed password for invalid user admin from 192.168.1.1 port 1234 ssh2
+            # Example: Invalid user webmaster from 192.168.1.1 port 54321
+            # Example: Connection closed by authenticating user root 192.168.1.1 port 1234 [preauth]
+            match = re.search(r'for\s+(?:invalid user\s+)?(\S+)\s+from\s+(\S+)', message)
+            if not match:
+                match = re.search(r'Invalid user\s+(\S+)\s+from\s+(\S+)', message)
+            if not match:
+                match = re.search(r'authenticating user\s+(\S+)\s+(\S+)', message)
+            
+            if match:
+                return {
+                    "type": "ssh_failure",
+                    "timestamp": dt,
+                    "hostname": data['hostname'],
+                    "user": match.group(1),
+                    "ip": match.group(2),
+                    "confidence": "high"
+                }
 
     # 2) privilege_escalation: sudo or su
-    if program == 'sudo' and 'COMMAND=' in message and 'USER=root' in message:
-        # Example: stpi : TTY=pts/0 ; PWD=/home/stpi ; USER=root ; COMMAND=/usr/bin/tail ...
-        user_match = re.search(r'^\s*(\S+)\s+:', message)
-        cmd_match = re.search(r'COMMAND=(.*)', message)
-        if user_match and cmd_match:
-            return {
-                "type": "privilege_escalation",
-                "timestamp": dt,
-                "hostname": data['hostname'],
-                "user": user_match.group(1),
-                "command": cmd_match.group(1).strip(),
-                "source": "sudo",
-                "confidence": "high"
-            }
+    if program == 'sudo':
+        if 'COMMAND=' in message and 'USER=root' in message:
+            # Example: stpi : TTY=pts/0 ; PWD=/home/stpi ; USER=root ; COMMAND=/usr/bin/tail ...
+            user_match = re.search(r'^\s*(\S+)\s+:', message)
+            cmd_match = re.search(r'COMMAND=(.*)', message)
+            if user_match and cmd_match:
+                return {
+                    "type": "privilege_escalation",
+                    "timestamp": dt,
+                    "hostname": data['hostname'],
+                    "user": user_match.group(1),
+                    "command": cmd_match.group(1).strip(),
+                    "source": "sudo",
+                    "confidence": "high"
+                }
+        elif 'authentication failure' in message or 'conversation failed' in message:
+            # Example: stpi : pam_unix(sudo:auth): authentication failure; logname=... user=stpi
+            # Or: stpi : pam_unix(sudo:auth): conversation failed
+            user_match = re.search(r'user=(\S+)', message)
+            if not user_match:
+                user_match = re.search(r'^\s*(\S+)\s+:', message)
+            
+            if user_match:
+                return {
+                    "type": "auth_failure",
+                    "timestamp": dt,
+                    "hostname": data['hostname'],
+                    "user": user_match.group(1),
+                    "source": "sudo",
+                    "confidence": "high"
+                }
     
-    if program == 'su' and 'session opened for user' in message:
-        # Example: pam_unix(su:session): session opened for user root by stpi(uid=1000)
-        match = re.search(r'user\s+(\S+)\s+by\s+(\S+)\(', message)
-        if match:
-            return {
-                "type": "privilege_escalation",
-                "timestamp": dt,
-                "hostname": data['hostname'],
-                "user": match.group(2),
-                "target_user": match.group(1),
-                "command": f"su to {match.group(1)}",
-                "source": "su",
-                "confidence": "medium" # su can be spoofed or ambiguous in some logs
-            }
+    if program == 'su':
+        if 'session opened for user' in message:
+            # Example: pam_unix(su:session): session opened for user root by stpi(uid=1000)
+            match = re.search(r'user\s+(\S+)\s+by\s+(\S+)\(', message)
+            if match:
+                return {
+                    "type": "privilege_escalation",
+                    "timestamp": dt,
+                    "hostname": data['hostname'],
+                    "user": match.group(2),
+                    "target_user": match.group(1),
+                    "command": f"su to {match.group(1)}",
+                    "source": "su",
+                    "confidence": "medium" 
+                }
+        elif 'authentication failure' in message:
+            # Example: pam_unix(su:auth): authentication failure; logname=... user=root
+            user_match = re.search(r'user=(\S+)', message)
+            if user_match:
+                return {
+                    "type": "auth_failure",
+                    "timestamp": dt,
+                    "hostname": data['hostname'],
+                    "user": user_match.group(1),
+                    "source": "su",
+                    "confidence": "high"
+                }
 
     # 3) iam_change: user and group management
     iam_programs = ['useradd', 'usermod', 'userdel', 'groupadd', 'groupmod', 'groupdel', 'chage']
@@ -106,6 +214,36 @@ def parse_line(line):
 
     return None
 
+def calculate_risk_score(signal_type, data):
+    """
+    Phase 2/3: Probabilistic Risk Scoring with Intent Enrichment.
+    Calculates a score between 0.0 and 1.0 based on signal type, 
+    intent weighting, and attribution confidence.
+    """
+    base_scores = {
+        "ssh_access_pattern": 0.1,
+        "ssh_brute_force": 0.3,
+        "privilege_escalation": 0.2,
+        "iam_change": 0.4,
+        "failed_auth": 0.3
+    }
+    
+    score = base_scores.get(signal_type, 0.1)
+    
+    # Intent-based escalation (Phase 3)
+    intent_weight = data.get("intent_weight", 0.0)
+    score += intent_weight
+    
+    # Specific pattern escalation
+    if signal_type == "ssh_access_pattern" and data.get("pattern") == "multi_ip_access":
+        score += 0.2
+    
+    # Confidence multiplier
+    conf_map = {"high": 1.0, "medium": 0.7, "low": 0.4}
+    multiplier = conf_map.get(data.get("confidence", "medium"), 0.7)
+    
+    return round(min(score * multiplier, 1.0), 2)
+
 def generate_narrative(signal_type, data):
     """
     Generates a neutral, non-alarmist incident narrative for non-technical customers.
@@ -121,9 +259,9 @@ def generate_narrative(signal_type, data):
             return f"A standard login was recorded for user '{data['user']}'. This is routine system access. No action is required."
 
     if signal_type == "privilege_escalation":
-        if data.get("severity") == "high":
+        if data.get("intent_weight", 0) >= 0.4:
             return (
-                f"User '{data['user']}' performed administrative changes to system security or user permissions. "
+                f"User '{data['user']}' performed sensitive administrative changes ({data.get('intent', 'General Administration')}). "
                 "These actions are typical during system maintenance but are highlighted to ensure they were intended. "
                 "Please consult your technical team if these changes were not authorized."
             )
@@ -136,6 +274,20 @@ def generate_narrative(signal_type, data):
             "Identity changes are fundamental to system security and are recorded to maintain an accurate audit trail of access permissions."
         )
 
+    if signal_type == "ssh_brute_force":
+        return (
+            f"Multiple unsuccessful login attempts ({data['failure_count']}) were recorded for the user '{data['user']}' from IP {data['ip']}. "
+            "Automated scripts on the internet frequently attempt to guess passwords. While these attempts were unsuccessful, "
+            "they are recorded as a standard part of our perimeter monitoring."
+        )
+
+    if signal_type == "failed_auth":
+        return (
+            f"An unsuccessful attempt to perform administrative tasks (via {data.get('source', 'unknown')}) was recorded for user '{data['user']}'. "
+            "This typically occurs due to an incorrect password entry and is recorded for audit purposes. "
+            "No action is required unless this activity was not initiated by you."
+        )
+
     return "Routine security event recorded. No action required."
 
 def generate_weekly_summary(signals):
@@ -146,14 +298,21 @@ def generate_weekly_summary(signals):
     ssh_patterns = [s for s in signals if s['signal'] == 'ssh_access_pattern']
     priv_escalations = [s for s in signals if s['signal'] == 'privilege_escalation']
     iam_changes = [s for s in signals if s['signal'] == 'iam_change']
+    ssh_brute_force = [s for s in signals if s['signal'] == 'ssh_brute_force']
+    failed_auth = [s for s in signals if s['signal'] == 'failed_auth']
     
     multi_ip_events = [s for s in ssh_patterns if s['pattern'] == 'multi_ip_access']
-    high_risk_sudo = [s for s in priv_escalations if s['severity'] == 'high']
+    high_risk_changes = [s for s in (priv_escalations + iam_changes) if s.get('intent_weight', 0) >= 0.4]
     
+    # Calculate average risk score for the week
+    avg_score = 0
+    if signals:
+        avg_score = round(sum(s.get('risk_score', 0) for s in signals) / len(signals), 2)
+
     # Determine overall risk and narrative based on Sentra's canonical risk values.
     # Logic: High-risk changes are classified as 'Low (Reviewed)' when they follow
     # maintenance patterns, saving 'Action Recommended' for unverified or urgent items.
-    if high_risk_sudo or iam_changes:
+    if high_risk_changes:
         risk_level = "Low (Reviewed)"
         status_detail = "Security-sensitive administrative or identity changes were detected and reviewed as part of routine maintenance."
         action_clause = "These changes are consistent with authorized system updates and no further action is required."
@@ -169,13 +328,16 @@ def generate_weekly_summary(signals):
     summary = {
         "report_type": "weekly_security_summary",
         "overall_risk": risk_level,
+        "avg_risk_score": avg_score,
         "server_count": 1,
         "highlights": {
             "access_patterns": len(ssh_patterns),
             "multi_ip_instances": len(multi_ip_events),
             "privileged_sessions": len(priv_escalations),
-            "high_risk_changes": len(high_risk_sudo),
-            "iam_changes": len(iam_changes)
+            "high_risk_changes": len(high_risk_changes),
+            "iam_changes": len(iam_changes),
+            "ssh_brute_force_attempts": len(ssh_brute_force),
+            "failed_auth_attempts": len(failed_auth)
         },
         "narrative": (
             f"This week, your system remains in a '{risk_level}' state. {status_detail} "
@@ -226,7 +388,7 @@ def generate_multi_server_summary(summaries):
     return summary
 
 def main():
-    parser = argparse.ArgumentParser(description="Sentra Security Log Parser - Phase 1 MVP")
+    parser = argparse.ArgumentParser(description="Sentra Security Log Parser - Phase 3 Enrichment")
     parser.add_argument("--input", default="/var/log/auth.log", help="Path to auth.log file")
     parser.add_argument("--output", help="Optional path to save JSON signals (still prints to stdout)")
     args = parser.parse_args()
@@ -234,7 +396,9 @@ def main():
     log_path = args.input
     ssh_groups = {}        # (user, ip, host, window) -> count
     ssh_access_groups = {} # (user, host, window) -> set of IPs
+    ssh_failure_groups = {}# (user, ip, host, window) -> count
     priv_groups = {}       # (user, host, window) -> [commands]
+    auth_failure_groups = {}# (user, source, host, window) -> count
     iam_events = []
 
     # High-risk command keywords
@@ -262,21 +426,37 @@ def main():
                         ssh_access_groups[key_1h] = set()
                     ssh_access_groups[key_1h].add(event['ip'])
                 
+                elif event['type'] == 'ssh_failure':
+                    # 1-hour window for brute force
+                    window = int(ts.timestamp() // 3600) * 3600
+                    key = (event['user'], event['ip'], event['hostname'], window)
+                    ssh_failure_groups[key] = ssh_failure_groups.get(key, 0) + 1
+
                 elif event['type'] == 'privilege_escalation':
                     window = int(ts.timestamp() // 600) * 600
                     key = (event['user'], event['hostname'], window)
                     if key not in priv_groups:
                         priv_groups[key] = []
                     
-                    # Classify command
+                    # Classify command (Phase 3)
                     cmd = event['command']
-                    is_high_risk = any(kw in cmd for kw in HIGH_RISK_KEYWORDS)
+                    meta = categorize_command(cmd)
                     priv_groups[key].append({
                         "command": cmd,
-                        "risk": "high" if is_high_risk else "normal",
+                        "risk": "high" if meta['risk_weight'] >= 0.4 else "normal",
+                        "intent": meta['intent'],
+                        "mitre": meta['mitre'],
+                        "compliance": meta['compliance'],
+                        "risk_weight": meta['risk_weight'],
                         "source": event.get("source", "unknown"),
                         "confidence": event.get("confidence", "high")
                     })
+
+                elif event['type'] == 'auth_failure':
+                    # 10-min window for privilege auth failure
+                    window = int(ts.timestamp() // 600) * 600
+                    key = (event['user'], event.get('source', 'unknown'), event['hostname'], window)
+                    auth_failure_groups[key] = auth_failure_groups.get(key, 0) + 1
                 
                 elif event['type'] == 'iam_change':
                     iam_events.append(event)
@@ -286,54 +466,117 @@ def main():
         # 1) SSH Access Patterns (1-hour)
         for (user, host, window), ips in ssh_access_groups.items():
             pattern = "multi_ip_access" if len(ips) > 1 else "single_ip_access"
+            ts_iso = datetime.fromtimestamp(window).isoformat()
             signal_data = {
+                "id": generate_signal_id("ssh_access_pattern", ts_iso, host, user),
                 "signal": "ssh_access_pattern",
-                "timestamp": datetime.fromtimestamp(window).isoformat(),
+                "timestamp": ts_iso,
                 "hostname": host,
                 "user": user,
                 "unique_ips": list(ips),
                 "ip_count": len(ips),
                 "pattern": pattern,
-                "confidence": "high"
+                "confidence": "high",
+                "status": "open"
             }
+            signal_data["risk_score"] = calculate_risk_score("ssh_access_pattern", signal_data)
             signal_data["narrative"] = generate_narrative("ssh_access_pattern", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
         # 2) Privilege Escalation (10-min)
         for (user, host, window), entries in priv_groups.items():
-            severity = "high" if any(e['risk'] == 'high' for e in entries) else "normal"
-            # Collective confidence: if any entry is medium, signal is medium
+            # Aggregate risk and metadata
+            max_intent_weight = max(e.get('risk_weight', 0.0) for e in entries)
+            primary_intent = next((e['intent'] for e in entries if e['risk_weight'] == max_intent_weight), "General Administration")
+            mitre_tags = list(set(e['mitre'] for e in entries if e['mitre'] != 'N/A'))
+            compliance_tags = list(set(e['compliance'] for e in entries if e['compliance'] != 'N/A'))
+            
             collective_conf = "medium" if any(e.get('confidence') == 'medium' for e in entries) else "high"
+            ts_iso = datetime.fromtimestamp(window).isoformat()
             signal_data = {
+                "id": generate_signal_id("privilege_escalation", ts_iso, host, user),
                 "signal": "privilege_escalation",
-                "timestamp": datetime.fromtimestamp(window).isoformat(),
+                "timestamp": ts_iso,
                 "hostname": host,
                 "user": user,
-                "severity": severity,
+                "intent": primary_intent,
+                "intent_weight": max_intent_weight,
+                "mitre_tags": mitre_tags,
+                "compliance_tags": compliance_tags,
                 "confidence": collective_conf,
-                "commands": entries
+                "commands": entries,
+                "status": "open"
             }
+            signal_data["risk_score"] = calculate_risk_score("privilege_escalation", signal_data)
             signal_data["narrative"] = generate_narrative("privilege_escalation", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
         # 3) IAM Changes (Individual events)
         for event in iam_events:
+            ts_iso = event['timestamp'].isoformat()
+            meta = categorize_command(event['program'])
             signal_data = {
+                "id": generate_signal_id("iam_change", ts_iso, event['hostname'], event['user']),
                 "signal": "iam_change",
-                "timestamp": event['timestamp'].isoformat(),
+                "timestamp": ts_iso,
                 "hostname": event['hostname'],
                 "user": event['user'],
                 "program": event['program'],
+                "intent": meta['intent'],
+                "intent_weight": meta['risk_weight'],
+                "mitre_tags": [meta['mitre']] if meta['mitre'] != 'N/A' else [],
+                "compliance_tags": [meta['compliance']] if meta['compliance'] != 'N/A' else [],
                 "message": event['message'],
-                "confidence": event['confidence']
+                "confidence": event['confidence'],
+                "status": "open"
             }
+            signal_data["risk_score"] = calculate_risk_score("iam_change", signal_data)
             signal_data["narrative"] = generate_narrative("iam_change", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
-        # 4) Weekly Summary
+        # 4) SSH Brute Force
+        for (user, ip, host, window), count in ssh_failure_groups.items():
+            if count >= 3: # Threshold for brute force signal
+                ts_iso = datetime.fromtimestamp(window).isoformat()
+                signal_data = {
+                    "id": generate_signal_id("ssh_brute_force", ts_iso, host, user),
+                    "signal": "ssh_brute_force",
+                    "timestamp": ts_iso,
+                    "hostname": host,
+                    "user": user,
+                    "ip": ip,
+                    "failure_count": count,
+                    "confidence": "high",
+                    "status": "open"
+                }
+                signal_data["risk_score"] = calculate_risk_score("ssh_brute_force", signal_data)
+                signal_data["narrative"] = generate_narrative("ssh_brute_force", signal_data)
+                all_signals.append(signal_data)
+                print(json.dumps(signal_data))
+
+        # 5) Auth Failures (Sudo/Su)
+        for (user, source, host, window), count in auth_failure_groups.items():
+            ts_iso = datetime.fromtimestamp(window).isoformat()
+            signal_data = {
+                "id": generate_signal_id("failed_auth", ts_iso, host, user),
+                "signal": "failed_auth",
+                "timestamp": ts_iso,
+                "hostname": host,
+                "user": user,
+                "source": source,
+                "failure_count": count,
+                "confidence": "high",
+                "status": "open"
+            }
+            signal_data["risk_score"] = calculate_risk_score("failed_auth", signal_data)
+            signal_data["narrative"] = generate_narrative("failed_auth", signal_data)
+            all_signals.append(signal_data)
+            print(json.dumps(signal_data))
+
+        # 6) Weekly Summary
         if all_signals:
             summary = generate_weekly_summary(all_signals)
             print(json.dumps(summary))

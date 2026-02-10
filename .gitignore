@@ -3,3 +3,4 @@ reports/
 __pycache__/
 .DS_Store
 FLEET_REPORT.md
+*.zip
