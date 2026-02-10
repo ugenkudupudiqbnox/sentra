@@ -211,6 +211,36 @@ Enrichment is where a raw log event earns its "Security Signal" status. In our A
 
 ---
 
+## 🏗️ System Module Boundaries
+
+Sentra is organized into four logical layers with strict boundaries to ensure scalability and maintainability:
+
+### 1. Ingestion / Parser Layer
+- **Responsibility**: Raw log collection and normalization.
+- **Components**: `parse_auth_log.py` (Local), Kafka Connectors (PB-scale).
+- **Output**: Structured JSON events with standardized timestamps (RFC5424/ISO8601).
+- **Boundary**: Does not perform security analysis; only ensures data types and schemas are correct.
+
+### 2. Signal Abstraction Layer
+- **Responsibility**: Behavioral aggregation and contextual enrichment.
+- **Components**: Flink Stream processors, `COMMAND_INTENT_MAP`.
+- **Logic**: Maps "commands" to "intents" and "compliance controls". Groups events into behavioral windows (10m/1h).
+- **Boundary**: Produces vectorized signals. It knows "what" happened but doesn't yet explain "why" to a human.
+
+### 3. Summarizer / Narrative Generator
+- **Responsibility**: Human-first synthesis of signal patterns.
+- **Components**: `ai_engine.py`, OpenAI/LLM integration.
+- **Logic**: Consumes a "signal cluster" and generates a natural language narrative and executive recommendation.
+- **Boundary**: Operates only on signals, never on raw logs. Provides the "Meaning" and "Response" logic.
+
+### 4. Evaluation / Ground Truth Reference
+- **Responsibility**: Quality control and probabilistic calibration.
+- **Components**: `overrides.json`, Analyst Feedback loop, Risk scoring models.
+- **Logic**: Compares AI-generated narratives against historical "reviewed" signals to reduce false positives.
+- **Boundary**: Acts as the system's "Self-Correction" layer, preventing LLM hallucinations and alert fatigue.
+
+---
+
 ## 💾 Storage Strategy & Data Lifecycle
 
 To handle PB-scale signals, Sentra is transitioning from local storage to a distributed, multi-tiered model:

@@ -23,6 +23,7 @@ This file tracks the history of tasks, decisions, and current state of the Sentr
 - Created `KAFKA_PLAYBOOK.md` outlining the high-throughput infrastructure required for PB-scale log ingestion.
 - Created `FLINK_PLAYBOOK.md` documentation for real-time signal processing and windowed correlation at scale.
 - **Three-Tier Storage Strategy**: Defined transition from local ChromaDB to a multi-tiered (Hot/Warm/Cold) distributed storage model.
+- **Modular Architecture Refactor**: Formalized system boundaries into four core layers: Ingestion, Signal Abstraction, Narrative Generation, and Evaluation/Ground Truth.
 - Updated `deploy_fleet.py` to deploy the AI-native engine across the fleet.
 
 ## TODO / Next Steps
