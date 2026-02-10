@@ -211,6 +211,27 @@ Enrichment is where a raw log event earns its "Security Signal" status. In our A
 
 ---
 
+## 💾 Storage Strategy & Data Lifecycle
+
+To handle PB-scale signals, Sentra is transitioning from local storage to a distributed, multi-tiered model:
+
+### 1. Hot Tier (Real-Time State)
+- **Engine**: Apache Flink + RocksDB.
+- **Data**: Active windowed events (last 1-24 hours).
+- **Purpose**: Real-time correlation, frequency analysis, and immediate triage.
+
+### 2. Warm Tier (Search & AI Analytics)
+- **Engine**: Distributed Vector DB (Pinecone / Milvus / Weaviate).
+- **Data**: Vectorized security signals (last 30-90 days).
+- **Purpose**: Cross-fleet signal correlation, similarity searches, and AI-driven pattern discovery.
+
+### 3. Cold Tier (Compliance & Forensics)
+- **Engine**: Cloud Object Storage (S3 / GCS / Azure Blob).
+- **Data**: Enriched signals and raw logs (1-7 years).
+- **Purpose**: Long-term audit evidence, forensic reconstruction, and model retraining.
+
+---
+
 ## 🧠 Component Breakdown
 
 ### 🔹 1. Signal Normalizer & Enricher
