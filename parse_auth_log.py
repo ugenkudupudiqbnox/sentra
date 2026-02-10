@@ -38,8 +38,9 @@ def parse_line(line):
     # Regex for standard syslog format:
     # Month Day Time Hostname Program[PID]: Message
     # Example: Feb 10 10:25:21 host sshd[1234]: Accepted password for user1 from 1.2.3.4
+    # Also support RFC5424 timestamp: 2026-02-10T18:19:49.784667+05:30
     syslog_pattern = re.compile(
-        r'^(?P<timestamp>[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2})\s+'
+        r'^(?P<timestamp>\S+)\s+'
         r'(?P<hostname>\S+)\s+'
         r'(?P<program>[^\[:]+)(?:\[\d+\])?:\s+'
         r'(?P<message>.*)$'
