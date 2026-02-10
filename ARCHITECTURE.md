@@ -26,6 +26,18 @@ If you naïvely fan-out:
 * Unmanageable
 * Splunk-level pricing
 
+Why this recreates Splunk economics exactly
+
+A Splunk Indexer does all of this inside one product:
+
+* Ingest
+* Index
+* Store
+* Search
+* Replicate
+
+Naïve fan-out does the same thing, just across five products (instead of 5 systems).
+
 If you do it right:
 
 * 10 PB raw (cheap object/Kafka tiered)
