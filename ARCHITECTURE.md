@@ -22,7 +22,7 @@ Stream Processing / Signal Factory
 
 If you naïvely fan-out:
 
-* 10 PB logs → 50 PB stored
+* 10 PB logs → (10 x 5 systems) 50 PB stored
 * Unmanageable
 * Splunk-level pricing
 
