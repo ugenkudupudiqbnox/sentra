@@ -1,3 +1,4 @@
+```
                            ┌───────────────────────────┐
                            │     DATA COLLECTION       │
                            │ (Agents / Collectors)     │
@@ -29,6 +30,7 @@
 │  Dashboards / Readouts / Evidence Kits / Auditor-Ready Reports / Playbooks   │
 └──────────────────────────────────────────────────────────────────────────────┘
 
+```
 ---
 
 ## System Components (v0.4)
