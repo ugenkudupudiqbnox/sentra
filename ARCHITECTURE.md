@@ -9,6 +9,15 @@ Stream Processing / Signal Factory
    ├──► Vector DB      (only embeddings)
    └──► AI Control     (only signals)
 ```
+```
+| System           | Receives raw logs? | What it actually stores    |
+| ---------------- | ------------------ | -------------------------- |
+| Kafka            | ✅ YES              | Raw logs (short retention) |
+| Elastic          | ⚠️ SELECTIVE       | Searchable security logs   |
+| ClickHouse       | ❌ NO               | Aggregates & rollups       |
+| Vector DB        | ❌ NO               | Embeddings of signals      |
+| AI Control Plane | ❌ NO               | Decisions & narratives     |
+```
 
 ```
                            ┌───────────────────────────┐
