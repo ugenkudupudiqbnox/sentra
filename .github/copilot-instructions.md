@@ -1,73 +1,31 @@
-# Sentra – Copilot Instructions
+# Project Memory
 
-## Project Context
-Sentra is an open-source Linux security signal engine.
-Its goal is to convert Linux logs into low-noise, human-readable security signals and narratives.
+This file tracks the history of tasks, decisions, and current state of the Sentra project to provide context for GitHub Copilot.
 
-Used in:
-- Managed hosting (Moodle, PressBooks, WordPress)
-- Managed SOC offerings
-- Compliance-focused environments
+## Last Updated: 2026-02-10
 
----
+## Current State
+- `parse_auth_log.py` contains the core logic for parsing `/var/log/auth.log`.
+- Successfully extracts users from `sshd`, `sudo`, and `cron` logs.
+- Outputs JSON.
 
-## Core Principles (Do Not Violate)
+## Recent Changes
+- Created `.github/copilot-instructions.md` to define project-wide rules and context.
+- Initialized `MEMORY.md` to track project evolution.
+- Added workflow constraint to `.github/copilot-instructions.md`: no commits or pushes without explicit user instruction.
+- Implemented `ssh_access_pattern` and `privilege_escalation` signals in `parse_auth_log.py`.
+- Refined signals with hourly/10-min aggregation and risk classification.
+- Added incident narrative generation for non-technical customers.
+- Aligned weekly reports with Sentra's canonical risk values (`Low`, `Low (Reviewed)`, `Action Recommended`).
+- Implemented `generate_multi_server_summary` to aggregate fleet-wide security status.
 
-1. Signals over events
-2. Low volume output
-3. Non-alarmist language
-4. Deterministic logic
-5. Customer trust first
+## TODO / Next Steps
+- Add support for more log sources (e.g., `su`, `pau-linux`).
+- Implement command-line arguments for input file path and output format.
+- Add unit tests for `extract_user` and `parse_line`.
+- Consider adding a dashboard-style view for aggregated weekly reports.
 
----
-
-## Canonical Signals (v0.3)
-
-- ssh_access_pattern
-  - single_ip_access
-  - multi_ip_access
-
-- privilege_escalation
-  - high: persistent security changes
-  - normal: routine admin work
-
-No new external signals without review.
-
----
-
-## AI Usage Rules
-
-AI may:
-- Generate narratives
-- Format weekly reports
-
-AI must not:
-- Decide severity
-- Trigger actions
-- Change logic
-
----
-
-## Weekly Report Rules
-
-Overall risk values:
-- Low
-- Low (Reviewed)
-- Action Recommended
-
-High severity does not automatically imply elevated risk.
-
----
-
-## What Not to Build
-
-- Dashboards
-- Alert floods
-- Autonomous remediation
-- Raw log exposure
-
----
-
-## North Star
-
-If the customer does not need to care, do not emit a signal.
+## TODO / Next Steps
+- Add support for more log sources (e.g., `su`, `pau-linux`).
+- Implement command-line arguments for input file path and output format.
+- Add unit tests for `extract_user` and `parse_line`.

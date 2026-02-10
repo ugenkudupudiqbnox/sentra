@@ -103,6 +103,7 @@ def generate_narrative(signal_type, data):
 def generate_weekly_summary(signals):
     """
     Generates a concise weekly security summary for a non-technical customer.
+    Aligns with Sentra's canonical risk values.
     """
     ssh_patterns = [s for s in signals if s['signal'] == 'ssh_access_pattern']
     priv_escalations = [s for s in signals if s['signal'] == 'privilege_escalation']
@@ -110,28 +111,71 @@ def generate_weekly_summary(signals):
     multi_ip_events = [s for s in ssh_patterns if s['pattern'] == 'multi_ip_access']
     high_risk_sudo = [s for s in priv_escalations if s['severity'] == 'high']
     
-    # Determine overall risk
-    if not high_risk_sudo and not multi_ip_events:
-        risk_level = "Low"
-        status_detail = "All recorded activity matches standard system operations."
-    elif high_risk_sudo:
-        risk_level = "Elevated"
-        status_detail = "Some administrative changes were detected. These are usually routine but should be verified if unplanned."
+    # Determine overall risk based on Sentra principles
+    # Default to Low unless sensitive changes are detected
+    if high_risk_sudo:
+        risk_level = "Action Recommended"
+        status_detail = "Security-sensitive administrative changes were detected."
+    elif multi_ip_events:
+        risk_level = "Low (Reviewed)"
+        status_detail = "System access from multiple locations was observed and reviewed."
     else:
-        risk_level = "Moderate"
-        status_detail = "System access patterns were slightly unusual but likely due to normal mobility."
+        risk_level = "Low"
+        status_detail = "All activity matches standard system operations."
 
     summary = {
         "report_type": "weekly_security_summary",
         "overall_risk": risk_level,
+        "server_count": 1,
         "highlights": {
-            "access_patterns": f"Detected {len(ssh_patterns)} login sessions, with {len(multi_ip_events)} instances of access from multiple locations.",
-            "privileged_activity": f"Recorded {len(priv_escalations)} administrative sessions; {len(high_risk_sudo)} involved security-sensitive changes."
+            "access_patterns": len(ssh_patterns),
+            "multi_ip_instances": len(multi_ip_events),
+            "privileged_sessions": len(priv_escalations),
+            "high_risk_changes": len(high_risk_sudo)
         },
         "narrative": (
-            f"This week, your system remains in a {risk_level.lower()} risk state. {status_detail} "
-            "Our monitoring shows that system administrative tasks and user access are generally following expected patterns. "
-            "Action is only recommended if the high-risk administrative events listed in your detailed logs were not performed by your authorized team."
+            f"This week, your system remains in a '{risk_level}' state. {status_detail} "
+            "Our monitoring confirms that system access and administrative tasks are generally consistent with your team's routine. "
+            "Action is only recommended if high-risk administrative changes were not planned."
+        )
+    }
+    return summary
+
+def generate_multi_server_summary(summaries):
+    """
+    Aggregates multiple per-server weekly security reports into a single multi-server summary.
+    Follows deterministic logic and uses canonical risk levels.
+    """
+    total_highlights = {
+        "access_patterns": 0,
+        "multi_ip_instances": 0,
+        "privileged_sessions": 0,
+        "high_risk_changes": 0
+    }
+    
+    risk_priority = ["Action Recommended", "Low (Reviewed)", "Low"]
+    highest_risk = "Low"
+    
+    for s in summaries:
+        h = s['highlights']
+        total_highlights["access_patterns"] += h.get("access_patterns", 0)
+        total_highlights["multi_ip_instances"] += h.get("multi_ip_instances", 0)
+        total_highlights["privileged_sessions"] += h.get("privileged_sessions", 0)
+        total_highlights["high_risk_changes"] += h.get("high_risk_changes", 0)
+        
+        # Deterministically find the highest risk level
+        if risk_priority.index(s['overall_risk']) < risk_priority.index(highest_risk):
+            highest_risk = s['overall_risk']
+
+    summary = {
+        "report_type": "multi_server_weekly_summary",
+        "overall_risk": highest_risk,
+        "server_count": len(summaries),
+        "highlights": total_highlights,
+        "narrative": (
+            f"Across your fleet of {len(summaries)} servers, the overall risk status is '{highest_risk}'. "
+            f"We recorded a total of {total_highlights['access_patterns']} access patterns and {total_highlights['privileged_sessions']} administrative sessions. "
+            "The environment remains stable, with all activity generally aligning with your authorized maintenance schedules."
         )
     }
     return summary
