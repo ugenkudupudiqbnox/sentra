@@ -100,6 +100,42 @@ def generate_narrative(signal_type, data):
     
     return "Routine security event recorded. No action required."
 
+def generate_weekly_summary(signals):
+    """
+    Generates a concise weekly security summary for a non-technical customer.
+    """
+    ssh_patterns = [s for s in signals if s['signal'] == 'ssh_access_pattern']
+    priv_escalations = [s for s in signals if s['signal'] == 'privilege_escalation']
+    
+    multi_ip_events = [s for s in ssh_patterns if s['pattern'] == 'multi_ip_access']
+    high_risk_sudo = [s for s in priv_escalations if s['severity'] == 'high']
+    
+    # Determine overall risk
+    if not high_risk_sudo and not multi_ip_events:
+        risk_level = "Low"
+        status_detail = "All recorded activity matches standard system operations."
+    elif high_risk_sudo:
+        risk_level = "Elevated"
+        status_detail = "Some administrative changes were detected. These are usually routine but should be verified if unplanned."
+    else:
+        risk_level = "Moderate"
+        status_detail = "System access patterns were slightly unusual but likely due to normal mobility."
+
+    summary = {
+        "report_type": "weekly_security_summary",
+        "overall_risk": risk_level,
+        "highlights": {
+            "access_patterns": f"Detected {len(ssh_patterns)} login sessions, with {len(multi_ip_events)} instances of access from multiple locations.",
+            "privileged_activity": f"Recorded {len(priv_escalations)} administrative sessions; {len(high_risk_sudo)} involved security-sensitive changes."
+        },
+        "narrative": (
+            f"This week, your system remains in a {risk_level.lower()} risk state. {status_detail} "
+            "Our monitoring shows that system administrative tasks and user access are generally following expected patterns. "
+            "Action is only recommended if the high-risk administrative events listed in your detailed logs were not performed by your authorized team."
+        )
+    }
+    return summary
+
 def main():
     log_path = '/var/log/auth.log'
     ssh_groups = {}        # (user, ip, host, window) -> count
@@ -146,6 +182,7 @@ def main():
                     })
 
         # Emit Aggregated Signals
+        all_signals = []
         # 1) SSH Access Patterns (1-hour)
         for (user, host, window), ips in ssh_access_groups.items():
             pattern = "multi_ip_access" if len(ips) > 1 else "single_ip_access"
@@ -159,6 +196,7 @@ def main():
                 "pattern": pattern
             }
             signal_data["narrative"] = generate_narrative("ssh_access_pattern", signal_data)
+            all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
         # 2) Privilege Escalation (10-min)
@@ -173,7 +211,13 @@ def main():
                 "commands": entries
             }
             signal_data["narrative"] = generate_narrative("privilege_escalation", signal_data)
+            all_signals.append(signal_data)
             print(json.dumps(signal_data))
+
+        # 3) Weekly Summary
+        if all_signals:
+            summary = generate_weekly_summary(all_signals)
+            print(json.dumps(summary))
 
     except FileNotFoundError:
         print(f"Error: {log_path} not found.", file=sys.stderr)
