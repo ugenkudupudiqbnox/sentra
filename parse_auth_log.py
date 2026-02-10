@@ -1,6 +1,7 @@
 import sys
 import json
 import re
+import argparse
 from datetime import datetime
 
 def parse_timestamp(ts_str):
@@ -55,10 +56,11 @@ def parse_line(line):
                 "timestamp": dt,
                 "hostname": data['hostname'],
                 "user": match.group(1),
-                "ip": match.group(2)
+                "ip": match.group(2),
+                "confidence": "high"
             }
 
-    # 2) privilege_escalation: sudo executes a command as root
+    # 2) privilege_escalation: sudo or su
     if program == 'sudo' and 'COMMAND=' in message and 'USER=root' in message:
         # Example: stpi : TTY=pts/0 ; PWD=/home/stpi ; USER=root ; COMMAND=/usr/bin/tail ...
         user_match = re.search(r'^\s*(\S+)\s+:', message)
@@ -69,8 +71,38 @@ def parse_line(line):
                 "timestamp": dt,
                 "hostname": data['hostname'],
                 "user": user_match.group(1),
-                "command": cmd_match.group(1).strip()
+                "command": cmd_match.group(1).strip(),
+                "source": "sudo",
+                "confidence": "high"
             }
+    
+    if program == 'su' and 'session opened for user' in message:
+        # Example: pam_unix(su:session): session opened for user root by stpi(uid=1000)
+        match = re.search(r'user\s+(\S+)\s+by\s+(\S+)\(', message)
+        if match:
+            return {
+                "type": "privilege_escalation",
+                "timestamp": dt,
+                "hostname": data['hostname'],
+                "user": match.group(2),
+                "target_user": match.group(1),
+                "command": f"su to {match.group(1)}",
+                "source": "su",
+                "confidence": "medium" # su can be spoofed or ambiguous in some logs
+            }
+
+    # 3) iam_change: user and group management
+    iam_programs = ['useradd', 'usermod', 'userdel', 'groupadd', 'groupmod', 'groupdel', 'chage']
+    if program in iam_programs:
+        return {
+            "type": "iam_change",
+            "timestamp": dt,
+            "hostname": data['hostname'],
+            "user": "root", # These usually run as root/sudo
+            "program": program,
+            "message": message,
+            "confidence": "high"
+        }
 
     return None
 
@@ -98,6 +130,12 @@ def generate_narrative(signal_type, data):
         else:
             return f"User '{data['user']}' performed routine administrative tasks. This is part of normal system operation. No action is required."
     
+    if signal_type == "iam_change":
+        return (
+            f"An identity management event was recorded: user or group changes were made using '{data['program']}'. "
+            "Identity changes are fundamental to system security and are recorded to maintain an accurate audit trail of access permissions."
+        )
+
     return "Routine security event recorded. No action required."
 
 def generate_weekly_summary(signals):
@@ -107,6 +145,7 @@ def generate_weekly_summary(signals):
     """
     ssh_patterns = [s for s in signals if s['signal'] == 'ssh_access_pattern']
     priv_escalations = [s for s in signals if s['signal'] == 'privilege_escalation']
+    iam_changes = [s for s in signals if s['signal'] == 'iam_change']
     
     multi_ip_events = [s for s in ssh_patterns if s['pattern'] == 'multi_ip_access']
     high_risk_sudo = [s for s in priv_escalations if s['severity'] == 'high']
@@ -114,9 +153,9 @@ def generate_weekly_summary(signals):
     # Determine overall risk and narrative based on Sentra's canonical risk values.
     # Logic: High-risk changes are classified as 'Low (Reviewed)' when they follow
     # maintenance patterns, saving 'Action Recommended' for unverified or urgent items.
-    if high_risk_sudo:
+    if high_risk_sudo or iam_changes:
         risk_level = "Low (Reviewed)"
-        status_detail = "Security-sensitive administrative changes were detected and reviewed as part of routine maintenance."
+        status_detail = "Security-sensitive administrative or identity changes were detected and reviewed as part of routine maintenance."
         action_clause = "These changes are consistent with authorized system updates and no further action is required."
     elif multi_ip_events:
         risk_level = "Low (Reviewed)"
@@ -135,7 +174,8 @@ def generate_weekly_summary(signals):
             "access_patterns": len(ssh_patterns),
             "multi_ip_instances": len(multi_ip_events),
             "privileged_sessions": len(priv_escalations),
-            "high_risk_changes": len(high_risk_sudo)
+            "high_risk_changes": len(high_risk_sudo),
+            "iam_changes": len(iam_changes)
         },
         "narrative": (
             f"This week, your system remains in a '{risk_level}' state. {status_detail} "
@@ -153,7 +193,8 @@ def generate_multi_server_summary(summaries):
         "access_patterns": 0,
         "multi_ip_instances": 0,
         "privileged_sessions": 0,
-        "high_risk_changes": 0
+        "high_risk_changes": 0,
+        "iam_changes": 0
     }
     
     risk_priority = ["Action Recommended", "Low (Reviewed)", "Low"]
@@ -165,6 +206,7 @@ def generate_multi_server_summary(summaries):
         total_highlights["multi_ip_instances"] += h.get("multi_ip_instances", 0)
         total_highlights["privileged_sessions"] += h.get("privileged_sessions", 0)
         total_highlights["high_risk_changes"] += h.get("high_risk_changes", 0)
+        total_highlights["iam_changes"] += h.get("iam_changes", 0)
         
         # Deterministically find the highest risk level
         if risk_priority.index(s['overall_risk']) < risk_priority.index(highest_risk):
@@ -184,13 +226,19 @@ def generate_multi_server_summary(summaries):
     return summary
 
 def main():
-    log_path = '/var/log/auth.log'
+    parser = argparse.ArgumentParser(description="Sentra Security Log Parser - Phase 1 MVP")
+    parser.add_argument("--input", default="/var/log/auth.log", help="Path to auth.log file")
+    parser.add_argument("--output", help="Optional path to save JSON signals (still prints to stdout)")
+    args = parser.parse_args()
+
+    log_path = args.input
     ssh_groups = {}        # (user, ip, host, window) -> count
     ssh_access_groups = {} # (user, host, window) -> set of IPs
     priv_groups = {}       # (user, host, window) -> [commands]
+    iam_events = []
 
     # High-risk command keywords
-    HIGH_RISK_KEYWORDS = ['visudo', 'passwd', 'chmod', 'chown', 'rm -rf', 'tee /etc/sudoers', 'usermod']
+    HIGH_RISK_KEYWORDS = ['visudo', 'passwd', 'chmod', 'chown', 'rm -rf', 'tee /etc/sudoers', 'usermod', 'useradd', 'userdel']
 
     try:
         with open(log_path, 'r') as f:
@@ -225,8 +273,13 @@ def main():
                     is_high_risk = any(kw in cmd for kw in HIGH_RISK_KEYWORDS)
                     priv_groups[key].append({
                         "command": cmd,
-                        "risk": "high" if is_high_risk else "normal"
+                        "risk": "high" if is_high_risk else "normal",
+                        "source": event.get("source", "unknown"),
+                        "confidence": event.get("confidence", "high")
                     })
+                
+                elif event['type'] == 'iam_change':
+                    iam_events.append(event)
 
         # Emit Aggregated Signals
         all_signals = []
@@ -240,7 +293,8 @@ def main():
                 "user": user,
                 "unique_ips": list(ips),
                 "ip_count": len(ips),
-                "pattern": pattern
+                "pattern": pattern,
+                "confidence": "high"
             }
             signal_data["narrative"] = generate_narrative("ssh_access_pattern", signal_data)
             all_signals.append(signal_data)
@@ -249,22 +303,47 @@ def main():
         # 2) Privilege Escalation (10-min)
         for (user, host, window), entries in priv_groups.items():
             severity = "high" if any(e['risk'] == 'high' for e in entries) else "normal"
+            # Collective confidence: if any entry is medium, signal is medium
+            collective_conf = "medium" if any(e.get('confidence') == 'medium' for e in entries) else "high"
             signal_data = {
                 "signal": "privilege_escalation",
                 "timestamp": datetime.fromtimestamp(window).isoformat(),
                 "hostname": host,
                 "user": user,
                 "severity": severity,
+                "confidence": collective_conf,
                 "commands": entries
             }
             signal_data["narrative"] = generate_narrative("privilege_escalation", signal_data)
             all_signals.append(signal_data)
             print(json.dumps(signal_data))
 
-        # 3) Weekly Summary
+        # 3) IAM Changes (Individual events)
+        for event in iam_events:
+            signal_data = {
+                "signal": "iam_change",
+                "timestamp": event['timestamp'].isoformat(),
+                "hostname": event['hostname'],
+                "user": event['user'],
+                "program": event['program'],
+                "message": event['message'],
+                "confidence": event['confidence']
+            }
+            signal_data["narrative"] = generate_narrative("iam_change", signal_data)
+            all_signals.append(signal_data)
+            print(json.dumps(signal_data))
+
+        # 4) Weekly Summary
         if all_signals:
             summary = generate_weekly_summary(all_signals)
             print(json.dumps(summary))
+
+        if args.output:
+            with open(args.output, 'w') as f:
+                for s in all_signals:
+                    f.write(json.dumps(s) + "\n")
+                if all_signals:
+                    f.write(json.dumps(summary) + "\n")
 
     except FileNotFoundError:
         print(f"Error: {log_path} not found.", file=sys.stderr)
