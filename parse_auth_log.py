@@ -120,32 +120,28 @@ def main():
                     })
 
         # Emit Aggregated Signals
-        for (user, ip, host, window), count in ssh_groups.items():
-            print(json.dumps({
-                "signal": "ssh_login_summary",
-                "timestamp": datetime.fromtimestamp(window).isoformat(),
-                "hostname": host,
-                "user": user,
-                "ip": ip,
-                "login_count": count
-            }))
-
+        # 1) SSH Access Patterns (1-hour)
         for (user, host, window), ips in ssh_access_groups.items():
+            pattern = "multi_ip_access" if len(ips) > 1 else "single_ip_access"
             print(json.dumps({
                 "signal": "ssh_access_pattern",
                 "timestamp": datetime.fromtimestamp(window).isoformat(),
                 "hostname": host,
                 "user": user,
                 "unique_ips": list(ips),
-                "ip_count": len(ips)
+                "ip_count": len(ips),
+                "pattern": pattern
             }))
 
+        # 2) Privilege Escalation (10-min)
         for (user, host, window), entries in priv_groups.items():
+            severity = "high" if any(e['risk'] == 'high' for e in entries) else "normal"
             print(json.dumps({
                 "signal": "privilege_escalation",
                 "timestamp": datetime.fromtimestamp(window).isoformat(),
                 "hostname": host,
                 "user": user,
+                "severity": severity,
                 "commands": entries
             }))
 
