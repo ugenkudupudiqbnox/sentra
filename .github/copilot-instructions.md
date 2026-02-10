@@ -9,6 +9,9 @@ This file tracks the history of tasks, decisions, and current state of the Sentr
 - Successfully extracts users from `sshd`, `sudo`, and `cron` logs.
 - Outputs JSON.
 
+## Workflow & Constraints
+- Do not commit or push code changes (check-in) unless explicitly instructed by the user.
+
 ## Recent Changes
 - Created `.github/copilot-instructions.md` to define project-wide rules and context.
 - Initialized `MEMORY.md` to track project evolution.
