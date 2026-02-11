@@ -1,9 +1,12 @@
 import os
 import json
+import time
 from datetime import datetime
+from abc import ABC, abstractmethod
+from typing import Dict, Any, List, Optional, Tuple
 from dotenv import load_dotenv
 
-# Load local environment variables if present
+# Load local environment variables
 load_dotenv()
 
 # Optional dependencies for Phase 2 AI
@@ -15,68 +18,61 @@ try:
 except ImportError:
     HAS_AI_DEPS = False
 
-# Initialize clients
+# Constants
 CHROMA_PATH = "sentra_vector_db"
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+DEFAULT_MODEL = "gpt-4o"
 
-collection = None
-client = None
+class UsageTracker:
+    """Tracks token usage and latency for mSOC billing groundwork."""
+    def __init__(self, drift_log_path: str = "model_drift.log"):
+        self.logs = []
+        self.drift_log_path = drift_log_path
 
-if HAS_AI_DEPS:
-    try:
-        # ChromaDB Setup
-        chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-        embedding_func = embedding_functions.DefaultEmbeddingFunction()
-        collection = chroma_client.get_or_create_collection(
-            name="security_signals",
-            embedding_function=embedding_func
-        )
-        # OpenAI Client
-        client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-    except Exception as e:
-        print(f"Warning: Failed to initialize AI deps: {e}")
-        HAS_AI_DEPS = False
-
-class AIEngine:
-    @staticmethod
-    def index_signal(signal_data):
-        """
-        Stores and indexes a security signal in ChromaDB for correlation.
-        """
-        if not HAS_AI_DEPS or not collection:
-            return
-
-        signal_id = signal_data.get("id")
-        content = f"Signal: {signal_data.get('signal')} | Host: {signal_data.get('hostname')} | User: {signal_data.get('user')} | Narrative: {signal_data.get('narrative')}"
+    def log_usage(self, tenant_id: str, provider: str, model: str, usage: Dict[str, int], latency: float, confidence: float = 0.0):
+        entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "tenant_id": tenant_id,
+            "provider": provider,
+            "model": model,
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+            "total_tokens": usage.get("total_tokens", 0),
+            "latency_ms": round(latency * 1000, 2),
+            "confidence": confidence
+        }
+        self.logs.append(entry)
         
+        # Model Drift Logging (Phase 1/2 requirement)
+        # Simply appending to a local file for now as a persistent log
         try:
-            collection.add(
-                ids=[signal_id],
-                documents=[content],
-                metadatas=[{
-                    "signal_type": signal_data.get("signal"),
-                    "hostname": signal_data.get("hostname"),
-                    "user": signal_data.get("user"),
-                    "risk_score": signal_data.get("risk_score", 0.0),
-                    "timestamp": signal_data.get("timestamp")
-                }]
-            )
-        except Exception as e:
-            print(f"Indexing failed: {e}")
+            with open(self.drift_log_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except:
+            pass
 
-    @staticmethod
-    def consult_ai(signal_type, context):
-        """
-        Phase 2: Use LLM for intelligent narrative and recommendations.
-        """
-        if not HAS_AI_DEPS or not client:
-            return None, None
+        print(f"[USAGE] Tenant: {tenant_id} | Model: {model} | Tokens: {entry['total_tokens']} | Conf: {confidence}")
+
+class BaseLLMProvider(ABC):
+    @abstractmethod
+    def generate_narrative(self, tenant_id: str, signal_type: str, context: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], float, Dict[str, Any]]:
+        pass
+
+class OpenAIProvider(BaseLLMProvider):
+    def __init__(self, api_key: str, tracker: UsageTracker):
+        self.client = OpenAI(api_key=api_key) if api_key else None
+        self.tracker = tracker
+        self.model = DEFAULT_MODEL
+
+    def generate_narrative(self, tenant_id: str, signal_type: str, context: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], float, Dict[str, Any]]:
+        if not self.client:
+            return None, None, 0.0, {}
 
         prompt = f"""
         You are a security analyst for Sentra, an AI-native security control plane.
         Analyze the following security event and provide:
         1. A calm, non-alarmist narrative for a non-technical customer.
         2. A specific, actionable recommendation for a technical team.
+        3. A confidence score (0.0 to 1.0) on how certain you are of this analysis.
 
         Context:
         Type: {signal_type}
@@ -85,35 +81,119 @@ class AIEngine:
         Response Format (JSON):
         {{
             "narrative": "...",
-            "recommendation": "..."
+            "recommendation": "...",
+            "confidence": 0.85
         }}
         """
 
+        start_time = time.time()
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
+            response = self.client.chat.completions.create(
+                model=self.model,
                 messages=[{"role": "system", "content": "You are a helpful security analyst."},
                           {"role": "user", "content": prompt}],
                 response_format={"type": "json_object"}
             )
+            latency = time.time() - start_time
             result = json.loads(response.choices[0].message.content)
-            return result.get("narrative"), result.get("recommendation")
+            confidence = result.get("confidence", 0.0)
+            
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
+            }
+            self.tracker.log_usage(tenant_id, "openai", self.model, usage, latency, confidence)
+            
+            return result.get("narrative"), result.get("recommendation"), confidence, usage
         except Exception as e:
-            # Silently fail for remote execution
-            return None, None
+            print(f"OpenAI Error: {e}")
+            return None, None, 0.0, {}
 
-    @staticmethod
-    def get_related_signals(signal_id, n_results=5):
-        """
-        Phase 2: Use Vector DB to find correlated signals across the fleet.
-        """
-        if not HAS_AI_DEPS or not collection:
-            return []
+class VectorDB:
+    def __init__(self, path: str):
+        if not HAS_AI_DEPS:
+            self.collection = None
+            return
+        
         try:
-            results = collection.query(
-                query_texts=[collection.get(ids=[signal_id])['documents'][0]],
-                n_results=n_results
+            self.client = chromadb.PersistentClient(path=path)
+            self.embedding_func = embedding_functions.DefaultEmbeddingFunction()
+            self.collection = self.client.get_or_create_collection(
+                name="security_signals",
+                embedding_function=self.embedding_func
+            )
+        except Exception as e:
+            print(f"ChromaDB Error: {e}")
+            self.collection = None
+
+    def index_signal(self, tenant_id: str, signal_data: Dict[str, Any]):
+        if not self.collection:
+            return
+
+        signal_id = signal_data.get("id")
+        # Ensure we filter by tenant_id during correlation
+        content = f"Tenant: {tenant_id} | Signal: {signal_data.get('signal_type')} | Host: {signal_data.get('host', {}).get('hostname')} | Narrative: {signal_data.get('narrative')}"
+        
+        metadata = {
+            "tenant_id": tenant_id,
+            "signal_type": signal_data.get("signal_type"),
+            "risk_score": signal_data.get("risk_score", 0.0),
+            "timestamp": signal_data.get("timestamp")
+        }
+
+        try:
+            self.collection.add(
+                ids=[signal_id],
+                documents=[content],
+                metadatas=[metadata]
+            )
+        except Exception as e:
+            print(f"Indexing failed: {e}")
+
+    def query_related(self, tenant_id: str, signal_id: str, n_results: int = 5):
+        if not self.collection:
+            return []
+        
+        try:
+            # Multi-tenant isolation: filter by tenant_id
+            results = self.collection.query(
+                query_texts=[self.collection.get(ids=[signal_id])['documents'][0]],
+                n_results=n_results,
+                where={"tenant_id": tenant_id}
             )
             return results
-        except:
+        except Exception as e:
+            print(f"Query failed: {e}")
             return []
+
+class AIEngine:
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(AIEngine, cls).__new__(cls)
+            cls._instance._init()
+        return cls._instance
+
+    def _init(self):
+        self.tracker = UsageTracker()
+        self.vector_db = VectorDB(CHROMA_PATH)
+        
+        # Default to OpenAI
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        self.provider = OpenAIProvider(api_key, self.tracker)
+
+    def get_usage_tracker(self) -> UsageTracker:
+        return self.tracker
+
+    def index_signal(self, tenant_id: str, signal_data: Dict[str, Any]):
+        self.vector_db.index_signal(tenant_id, signal_data)
+
+    def consult_ai(self, tenant_id: str, signal_type: str, context: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], float]:
+        narrative, recommendation, confidence, usage = self.provider.generate_narrative(tenant_id, signal_type, context)
+        return narrative, recommendation, confidence
+
+    def get_related_signals(self, tenant_id: str, signal_id: str, n_results: int = 5):
+        return self.vector_db.query_related(tenant_id, signal_id, n_results)
+

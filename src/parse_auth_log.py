@@ -5,11 +5,11 @@ import argparse
 import hashlib
 from datetime import datetime
 from ai_engine import AIEngine
-
-def generate_signal_id(signal_type, timestamp, hostname, user):
-    """Generates a stable unique ID for a signal."""
-    raw = f"{signal_type}|{timestamp}|{hostname}|{user}"
-    return hashlib.md5(raw.encode()).hexdigest()[:12]
+from schema import (
+    SecuritySignal, UserEntity, HostEntity, 
+    ProcessEntity, NetworkEntity, ComplianceTag
+)
+from storage import StorageFactory
 
 # Phase 3: Enrichment & Compliance Mapping
 COMMAND_INTENT_MAP = {
@@ -64,16 +64,10 @@ def categorize_command(command):
     }
 
 def parse_timestamp(ts_str):
-    """
-    Parses both RFC5424 (ISO 8601) and traditional syslog timestamps.
-    """
     try:
-        # Remove any fractional seconds and timezone for simpler parsing if needed,
-        # but fromisoformat handles most modern formats.
         return datetime.fromisoformat(ts_str)
     except:
         try:
-            # Fallback for traditional syslog: Feb 10 18:19:49
             dt = datetime.strptime(ts_str, "%b %d %H:%M:%S")
             return dt.replace(year=datetime.now().year)
         except:
@@ -84,8 +78,6 @@ def parse_line(line):
     if not line:
         return None
 
-    # Regex for standard syslog format:
-    # Also support RFC5424 timestamp: 2026-02-10T18:19:49.784667+05:30
     syslog_pattern = re.compile(
         r'^(?P<timestamp>\S+)\s+'
         r'(?P<hostname>\S+)\s+'
@@ -105,10 +97,8 @@ def parse_line(line):
     if not dt:
         return None
 
-    # 1) ssh_login: sshd accepts a publickey or failed password
     if program == 'sshd':
         if 'Accepted publickey' in message:
-            # Example: Accepted publickey for stpi from 49.204.255.1 port 27141 ssh2: RSA ...
             match = re.search(r'for\s+(\S+)\s+from\s+(\S+)', message)
             if match:
                 return {
@@ -116,33 +106,23 @@ def parse_line(line):
                     "timestamp": dt,
                     "hostname": data['hostname'],
                     "user": match.group(1),
-                    "ip": match.group(2),
-                    "confidence": "high"
+                    "ip": match.group(2)
                 }
-        elif 'Failed password' in message or 'Invalid user' in message or 'Connection closed by authenticating user' in message:
-            # Example: Failed password for invalid user admin from 192.168.1.1 port 1234 ssh2
-            # Example: Invalid user webmaster from 192.168.1.1 port 54321
-            # Example: Connection closed by authenticating user root 192.168.1.1 port 1234 [preauth]
+        elif 'Failed password' in message or 'Invalid user' in message:
             match = re.search(r'for\s+(?:invalid user\s+)?(\S+)\s+from\s+(\S+)', message)
             if not match:
                 match = re.search(r'Invalid user\s+(\S+)\s+from\s+(\S+)', message)
-            if not match:
-                match = re.search(r'authenticating user\s+(\S+)\s+(\S+)', message)
-            
             if match:
                 return {
                     "type": "ssh_failure",
                     "timestamp": dt,
                     "hostname": data['hostname'],
                     "user": match.group(1),
-                    "ip": match.group(2),
-                    "confidence": "high"
+                    "ip": match.group(2)
                 }
 
-    # 2) privilege_escalation: sudo or su
     if program == 'sudo':
         if 'COMMAND=' in message and 'USER=root' in message:
-            # Example: stpi : TTY=pts/0 ; PWD=/home/stpi ; USER=root ; COMMAND=/usr/bin/tail ...
             user_match = re.search(r'^\s*(\S+)\s+:', message)
             cmd_match = re.search(r'COMMAND=(.*)', message)
             if user_match and cmd_match:
@@ -151,10 +131,109 @@ def parse_line(line):
                     "timestamp": dt,
                     "hostname": data['hostname'],
                     "user": user_match.group(1),
-                    "command": cmd_match.group(1).strip(),
-                    "source": "sudo",
-                    "confidence": "high"
+                    "command": cmd_match.group(1).strip()
                 }
+
+    return None
+
+def calculate_risk_score(signal_type, severity):
+    sev_map = {"Low": 0.1, "Medium": 0.4, "High": 0.7, "Critical": 0.9}
+    return sev_map.get(severity, 0.1)
+
+def enrich_signal_with_ai(signal: SecuritySignal):
+    engine = AIEngine()
+    
+    # AI Enrichment
+    context = signal.model_dump()
+    narrative, recommendation, confidence = engine.consult_ai(
+        signal.tenant_id, signal.signal_type, context
+    )
+    
+    if narrative:
+        signal.narrative = narrative
+    if recommendation:
+        signal.recommendation = recommendation
+    if confidence:
+        signal.ai_confidence = confidence
+    
+    # Model info for drift tracking
+    signal.model_info = {"model": "gpt-4o", "provider": "openai"}
+    
+    # Vector Indexing
+    engine.index_signal(signal.tenant_id, signal.model_dump())
+    
+    return signal
+
+def main():
+    parser = argparse.ArgumentParser(description="Sentra Security Log Parser - Phase 0 mSOC")
+    parser.add_argument("--input", default="/var/log/auth.log", help="Path to auth.log file")
+    parser.add_argument("--tenant-id", default="default-tenant", help="Tenant ID for mSOC isolation")
+    parser.add_argument("--output", help="Optional path to save JSON signals")
+    args = parser.parse_args()
+
+    signals = []
+    
+    # Initialize Storage Engines
+    ch_storage = StorageFactory.get_storage("ClickHouse")
+    es_storage = StorageFactory.get_storage("Elastic")
+    
+    # Simulated simple parsing and signal generation for Phase 0 demonstration
+    try:
+        with open(args.input, 'r') as f:
+            for line in f:
+                event = parse_line(line)
+                if not event:
+                    continue
+                
+                # Convert event to SecuritySignal Pydantic model
+                if event['type'] == 'ssh_login':
+                    signal = SecuritySignal(
+                        tenant_id=args.tenant_id,
+                        signal_type="ssh_login",
+                        severity="Low",
+                        user=UserEntity(username=event['user']),
+                        host=HostEntity(hostname=event['hostname'], ip=event['ip']),
+                        network=NetworkEntity(source_ip=event['ip'])
+                    )
+                elif event['type'] == 'privilege_escalation':
+                    meta = categorize_command(event['command'])
+                    severity = "Medium" if meta['risk_weight'] < 0.5 else "High"
+                    signal = SecuritySignal(
+                        tenant_id=args.tenant_id,
+                        signal_type="privilege_escalation",
+                        severity=severity,
+                        user=UserEntity(username=event['user']),
+                        host=HostEntity(hostname=event['hostname']),
+                        process=ProcessEntity(name=event['command']),
+                        compliance_tags=[ComplianceTag(
+                            framework="SOC2", 
+                            control_id=meta['compliance']
+                        )] if meta['compliance'] != 'N/A' else []
+                    )
+                else:
+                    continue
+
+                signal.risk_score = calculate_risk_score(signal.signal_type, signal.severity)
+                enriched_signal = enrich_signal_with_ai(signal)
+                
+                # Ingest into persistent storage (Phase 2)
+                ch_storage.ingest(enriched_signal)
+                es_storage.ingest(enriched_signal)
+                
+                signals.append(enriched_signal)
+                print(enriched_signal.to_json())
+
+        if args.output:
+            with open(args.output, 'w') as f:
+                for s in signals:
+                    f.write(s.to_json() + "\n")
+
+    except Exception as e:
+        print(f"Error: {e}")
+
+if __name__ == "__main__":
+    main()
+
         elif 'authentication failure' in message or 'conversation failed' in message:
             # Example: stpi : pam_unix(sudo:auth): authentication failure; logname=... user=stpi
             # Or: stpi : pam_unix(sudo:auth): conversation failed
