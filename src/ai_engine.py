@@ -28,6 +28,15 @@ class UsageTracker:
         self.logs = []
         self.drift_log_path = drift_log_path
 
+    @property
+    def total_tokens(self) -> int:
+        return sum(log.get("total_tokens", 0) for log in self.logs)
+
+    @property
+    def total_cost_usd(self) -> float:
+        # Simple estimate: $0.01 per 1k tokens
+        return (self.total_tokens / 1000.0) * 0.01
+
     def log_usage(self, tenant_id: str, provider: str, model: str, usage: Dict[str, int], latency: float, confidence: float = 0.0):
         entry = {
             "timestamp": datetime.utcnow().isoformat(),

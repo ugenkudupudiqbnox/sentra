@@ -21,6 +21,7 @@ This file tracks the history of tasks, decisions, and current state of the Sentr
 - Updated `src/schema.py` to support `UserEntity` extensions and `recommended_playbooks`.
 - Established Quarter 2 Infrastructure with `docker-compose.yml` and `src/db_setup.sql`.
 - **Q2 Hardening**: Implemented hybrid AI intent classification, health-aware routing fallback, and persistent decision audit logging in `qre.py`.
+- **UI Launch**: Created `src/dashboard.py` providing a consolidated view of Signal Streams, QRE Explorations, and AI Governance.
 
 ## TODO / Next Steps
 - **Q2 Finalization**:
@@ -31,6 +32,4 @@ This file tracks the history of tasks, decisions, and current state of the Sentr
     - Develop the **SOAR Connector Framework** for Jira/Slack/IAM APIs.
     - Implement human-approval gates for playbook execution.
 - **Streaming Migration**: Transition batch parsing to a persistent Kafka/Flink pipeline.
-    - Map `SecuritySignal` to ClickHouse analytical tables.
-- **Streaming Migration**: Begin implementing the persistent Kafka/Flink consumer to replace the batch parser.
-- **UX Foundation**: Develop the "Query UI" mockups or a lean CLI for the QRE.
+- **UX Foundation**: Maintain and expand the **Sentra Control Plane** (Streamlit).
