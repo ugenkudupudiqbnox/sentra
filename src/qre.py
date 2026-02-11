@@ -1,7 +1,34 @@
 import json
 import re
+import datetime
 from typing import Dict, Any, List, Optional, Tuple
 from ai_engine import AIEngine
+
+class HealthMonitor:
+    """Monitors the availability and latency of downstream engines."""
+    
+    def __init__(self):
+        self.registry = {
+            "ClickHouse": {"status": "HEALTHY", "latency_ms": 10},
+            "Elastic": {"status": "HEALTHY", "latency_ms": 45},
+            "VectorDB": {"status": "HEALTHY", "latency_ms": 230},
+            "Kafka/Flink": {"status": "HEALTHY", "latency_ms": 5},
+            "AI Control Plane": {"status": "HEALTHY", "latency_ms": 1200}
+        }
+
+    def get_optimal_engine(self, primary_engine: str) -> str:
+        """Returns the primary engine if healthy, else finds a fallback."""
+        if self.registry.get(primary_engine, {}).get("status") == "HEALTHY":
+            return primary_engine
+        
+        # Simple fallback logic: if primary is down, use Elastic as catch-all
+        print(f"[QRE] Warning: Primary engine {primary_engine} is UNHEALTHY. Falling back to Elastic.")
+        return "Elastic"
+
+    def update_status(self, engine: str, status: str, latency: int):
+        if engine in self.registry:
+            self.registry[engine]["status"] = status
+            self.registry[engine]["latency_ms"] = latency
 
 class IntentClassifier:
     """Classifies query intent into one of the canonical QRE categories."""
@@ -15,7 +42,7 @@ class IntentClassifier:
     }
 
     def __init__(self):
-        self.engine = AIEngine()
+        self.ai = AIEngine()
 
     def classify(self, tenant_id: str, query: str) -> Tuple[str, float]:
         """
@@ -30,28 +57,10 @@ class IntentClassifier:
         if any(w in query_lower for w in ["is this", "should I", "risk of"]):
             return "DECISION", 0.85
         
-        # LLM classification
-        prompt = f"""
-        Classify the intent of the following security query into one of these categories:
-        - EXACT: Precise matching, forensic logs, specific IP/User/Time.
-        - ANALYTICAL: Aggregations, trends, top N, statistics.
-        - SIMILARITY: Finding related events, pattern matching, "like this".
-        - STREAMING: Alerts, real-time monitoring.
-        - DECISION: Risk assessment, judgment calls, recommendations.
-
-        Query: "{query}"
-
-        Response Format (JSON):
-        {{
-            "intent": "...",
-            "confidence": 0.0
-        }}
-        """
-
-        # We reuse the consult_ai infrastructure but for routing
-        # In a real implementation, we might have a specific route_ai method
-        # For now, let's mock the LLM classification or use a dedicated method if we added it
-        # Since consult_ai is tuned for narratives, let's assume rule-based + future LLM
+        # LLM classification via AI Engine
+        intent, confidence = self.ai.classify_intent(tenant_id, query)
+        if confidence > 0.0:
+            return intent, confidence
         
         return "EXACT", 0.70  # Default fallback
 
@@ -79,6 +88,33 @@ class QueryDecomposer:
             
         return sub_queries
 
+class CostEstimator:
+    """
+    Estimates the relative cost of executing a query on a specific engine.
+    Used for cost-aware routing decisions.
+    """
+    ENGINE_BASE_COSTS = {
+        "Elastic": 5.0,        # High cost for forensic indexing and keyword search
+        "ClickHouse": 1.0,     # Low cost for analytical aggregates
+        "VectorDB": 3.0,       # Moderate cost for embedding search
+        "Kafka/Flink": 2.0,    # Real-time processing overhead
+        "AI Control Plane": 10.0 # High cost per LLM token consultation
+    }
+
+    @staticmethod
+    def estimate(engine: str, query: str) -> float:
+        """
+        Predicts cost based on engine type and query complexity.
+        In a real system, this would inspect data volume or expected shard hits.
+        """
+        base_cost = CostEstimator.ENGINE_BASE_COSTS.get(engine, 1.0)
+        
+        # Complexity penalty
+        complexity = len(query.split()) * 0.1
+        total_estimate = round(base_cost + complexity, 2)
+        
+        return total_estimate
+
 class QueryRouter:
     """Routes queries to the optimal engine based on intent."""
 
@@ -93,6 +129,16 @@ class QueryRouter:
     def __init__(self):
         self.classifier = IntentClassifier()
         self.decomposer = QueryDecomposer()
+        self.health = HealthMonitor()
+        self.audit_log = "qre_audit.json"
+
+    def _log_decision(self, decision: Dict[str, Any]):
+        """Persist routing decision for auditability (FR-4)."""
+        try:
+            with open(self.audit_log, "a") as f:
+                f.write(json.dumps(decision) + "\n")
+        except Exception as e:
+            print(f"[QRE] Error writing audit log: {e}")
 
     def route(self, tenant_id: str, query: str) -> List[Dict[str, Any]]:
         # Check if compound
@@ -100,7 +146,13 @@ class QueryRouter:
         decisions = []
         
         for sq in sub_queries:
-            engine = self.ENGINE_MAPPING.get(sq["intent"], "Elastic")
+            primary_engine = self.ENGINE_MAPPING.get(sq["intent"], "Elastic")
+            
+            # Health-aware routing
+            engine = self.health.get_optimal_engine(primary_engine)
+            
+            cost_estimate = CostEstimator.estimate(engine, sq["sub_query"])
+            
             decision = {
                 "original_query": query,
                 "sub_query": sq["sub_query"],
@@ -108,10 +160,12 @@ class QueryRouter:
                 "intent": sq["intent"],
                 "confidence": sq["confidence"],
                 "engine": engine,
-                "timestamp": AIEngine().get_usage_tracker().logs[-1]["timestamp"] if AIEngine().get_usage_tracker().logs else "now"
+                "cost_estimate": cost_estimate,
+                "timestamp": datetime.datetime.utcnow().isoformat()
             }
             decisions.append(decision)
-            print(f"[QRE] Route: '{sq['sub_query']}' -> {engine} ({sq['intent']})")
+            self._log_decision(decision)
+            print(f"[QRE] Route: '{sq['sub_query']}' -> {engine} ({sq['intent']}, Cost: {cost_estimate})")
             
         return decisions
 

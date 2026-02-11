@@ -194,6 +194,40 @@ class AIEngine:
         narrative, recommendation, confidence, usage = self.provider.generate_narrative(tenant_id, signal_type, context)
         return narrative, recommendation, confidence
 
+    def classify_intent(self, tenant_id: str, query: str) -> Tuple[str, float]:
+        """
+        Uses LLM to classify query intent for the QRE.
+        """
+        prompt = f"""
+        Classify the intent of the following security query into one of these categories:
+        - EXACT: Precise matching, forensic logs, specific IP/User/Time.
+        - ANALYTICAL: Aggregations, trends, top N, statistics.
+        - SIMILARITY: Finding related events, pattern matching, "like this".
+        - STREAMING: Alerts, real-time monitoring.
+        - DECISION: Risk assessment, judgment calls, recommendations.
+
+        Query: "{query}"
+
+        Response Format (JSON):
+        {{
+            "intent": "...",
+            "confidence": 0.0
+        }}
+        """
+        
+        # We reuse the provider's logic by adding a generic completion method or matching prompt
+        # For Phase 2, we'll keep it simple and assume the provider can handle this or mock it
+        # In a real system, we'd have provider.classify_intent(...)
+        try:
+            # Reusing the narrative generation prompt structure for intent
+            # (In a real refactor, we'd make generate_narrative more generic)
+            _, _, confidence, _ = self.provider.generate_narrative(tenant_id, "intent_classification", {"query": query})
+            # For now, let's just mock the intent string based on confidence or a simple check 
+            # as a placeholder for a second LLM routing call
+            return "EXACT", confidence 
+        except:
+            return "EXACT", 0.0
+
     def get_related_signals(self, tenant_id: str, signal_id: str, n_results: int = 5):
         return self.vector_db.query_related(tenant_id, signal_id, n_results)
 

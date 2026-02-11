@@ -10,6 +10,8 @@ from schema import (
     ProcessEntity, NetworkEntity, ComplianceTag
 )
 from storage import StorageFactory
+from identity import IdentityService
+from playbooks import PlaybookEngine
 
 # Phase 3: Enrichment & Compliance Mapping
 COMMAND_INTENT_MAP = {
@@ -142,6 +144,7 @@ def calculate_risk_score(signal_type, severity):
 
 def enrich_signal_with_ai(signal: SecuritySignal):
     engine = AIEngine()
+    pb_engine = PlaybookEngine()
     
     # AI Enrichment
     context = signal.model_dump()
@@ -155,6 +158,10 @@ def enrich_signal_with_ai(signal: SecuritySignal):
         signal.recommendation = recommendation
     if confidence:
         signal.ai_confidence = confidence
+    
+    # Playbook Recommendations (Phase 3 Prep)
+    playbooks = pb_engine.get_recommendations(signal.signal_type, signal.risk_score)
+    signal.recommended_playbooks = [pb.id for pb in playbooks]
     
     # Model info for drift tracking
     signal.model_info = {"model": "gpt-4o", "provider": "openai"}
@@ -186,12 +193,19 @@ def main():
                     continue
                 
                 # Convert event to SecuritySignal Pydantic model
+                user_idp = IdentityService.resolve_user(event['user'])
+                user_entity = UserEntity(
+                    username=event['user'],
+                    org_identity=user_idp["org_identity"],
+                    job_role=user_idp["job_role"]
+                )
+
                 if event['type'] == 'ssh_login':
                     signal = SecuritySignal(
                         tenant_id=args.tenant_id,
                         signal_type="ssh_login",
                         severity="Low",
-                        user=UserEntity(username=event['user']),
+                        user=user_entity,
                         host=HostEntity(hostname=event['hostname'], ip=event['ip']),
                         network=NetworkEntity(source_ip=event['ip'])
                     )
@@ -202,7 +216,7 @@ def main():
                         tenant_id=args.tenant_id,
                         signal_type="privilege_escalation",
                         severity=severity,
-                        user=UserEntity(username=event['user']),
+                        user=user_entity,
                         host=HostEntity(hostname=event['hostname']),
                         process=ProcessEntity(name=event['command']),
                         compliance_tags=[ComplianceTag(

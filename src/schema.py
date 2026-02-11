@@ -10,6 +10,8 @@ class UserEntity(BaseModel):
     uid: Optional[int] = None
     group: Optional[str] = None
     domain: Optional[str] = None
+    org_identity: Optional[str] = None  # e.g., "stpi@braoucloud.com" (LDAP/AzureAD)
+    job_role: Optional[str] = None      # e.g., "Site Reliability Engineer"
 
 class HostEntity(BaseModel):
     hostname: str
@@ -61,6 +63,7 @@ class SecuritySignal(BaseModel):
     compliance_tags: List[ComplianceTag] = []
     mitre_ttps: List[str] = []
     model_info: Dict[str, str] = {} # e.g., {"model": "gpt-4o", "provider": "openai"}
+    recommended_playbooks: List[str] = [] # IDs from playbooks.py
     extra_data: Dict[str, Any] = {}
 
     def to_json(self):

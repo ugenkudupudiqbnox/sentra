@@ -64,6 +64,25 @@ class ElasticStorage(BaseStorage):
         print(f"[Elastic] Executing forensic query for {tenant_id}: {query}")
         return [{"timestamp": "2026-02-11T12:00:00", "message": "Failed login", "tenant_id": tenant_id}]
 
+class VectorDBStorage(BaseStorage):
+    """Handles similarity search (ChromaDB / VectorDB)."""
+    def ingest(self, signal: SecuritySignal):
+        print(f"[VectorDB] Embedding and indexing signal {signal.id}")
+
+    def query(self, tenant_id: str, query: str) -> List[Dict[str, Any]]:
+        print(f"[VectorDB] Executing similarity search for {tenant_id}: {query}")
+        return [{"signal_id": "sig-789", "reason": "98% vector similarity to known brute force pattern"}]
+
+class AIControlPlaneStorage(BaseStorage):
+    """Handles judgment/decision queries via LLM."""
+    def ingest(self, signal: SecuritySignal):
+        pass # AI doesn't ingest directly in this abstraction
+
+    def query(self, tenant_id: str, query: str) -> List[Dict[str, Any]]:
+        print(f"[AI Control Plane] Consulting LLM for decision support: {query}")
+        # In a real setup, we'd call AIEngine here
+        return [{"decision": "CONSENSUS_BLOCK", "risk_reduction": 0.85, "explanation": "Pattern matches coordinated credential stuffing."}]
+
 class StorageFactory:
     @staticmethod
     def get_storage(engine_type: str) -> BaseStorage:
@@ -71,5 +90,9 @@ class StorageFactory:
             return ClickHouseStorage()
         elif engine_type == "Elastic":
             return ElasticStorage()
+        elif engine_type == "VectorDB":
+            return VectorDBStorage()
+        elif engine_type == "AI Control Plane":
+            return AIControlPlaneStorage()
         else:
             raise ValueError(f"Unknown storage engine: {engine_type}")
