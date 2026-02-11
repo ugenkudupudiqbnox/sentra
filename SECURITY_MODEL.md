@@ -25,7 +25,7 @@ Instead, it:
 
 ---
 
-## Probabilistic Risk Scoring (Phase 2 & 3)
+## Probabilistic Risk Scoring
 
 Sentra uses a probabilistic risk model ($0.0$ to $1.0$) to prioritize signals. 
 - **Base Scores**: Every signal type has a baseline risk (e.g., `ssh_brute_force` = 0.3).
@@ -55,7 +55,7 @@ Signals with high risk scores ($\ge 0.5$) or unverified adversarial activity (e.
 
 AI is used to:
 - **Narrative Generation**: Translating complex log patterns into plain-language security facts.
-- **Action Recommendations (Phase 4)**: Suggesting specific mitigation steps based on signal context and risk.
+- **Action Recommendations**: Suggesting specific mitigation steps based on signal context and risk.
 - **Intent Classification**: Mapping raw commands to behavioral categories (e.g., Identity Management).
 
 AI never:

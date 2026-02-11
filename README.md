@@ -31,7 +31,7 @@ Sentra does not alert aggressively or automate decisions.
 
 ---
 
-## Supported Platforms (v0.3)
+## Supported Platforms 
 
 - Ubuntu 20.04 / 22.04 / 24.04
 - Standard Linux logs:
@@ -49,21 +49,21 @@ Sentra reduces raw events into security signals that represent behavior over tim
 - Access patterns
 - Privileged activity
 
-### Risk Scoring & Analyst Workflow (Phase 2)
+### Risk Scoring & Analyst Workflow
 Sentra uses a probabilistic risk model ($0.0$ to $1.0$) to prioritize signals. Each signal includes a stable, unique ID (e.g., `381521c2a0c1`) that allows analysts to:
 - **Correlate** activity across the fleet.
 - **Override** signals using an `overrides.json` file to resolve routine maintenance window activities.
 - **Maintain Continuity** via a dedicated "AI Handover Notes" section in the weekly executive report.
 - Security-sensitive configuration changes
 
-### Phase 3: Compliance & Enrichment
+### Compliance & Enrichment
 Sentra automates the mapping of security signals to global standards:
 - **MITRE ATT&CK Tracking**: Signals are tagged with specific tactics and techniques (e.g., T1078, T1021).
 - **SOC 2 & ISO 27001 Evidence**: Direct mapping to trust services criteria (CC6.1, CC7.1) for auditor-ready reporting.
 - **Intent Classification**: Uses regex-based behavioral analysis to categorize administrative actions (Maintenance vs. Identity Management vs. Credential Access).
 - **Audit Evidence Bundle**: A single-command utility (`generate_audit_bundle.py`) to aggregate all reports, decisions, and raw evidence into a timestamped zip archive for auditors.
 
-### Phase 4: SOAR & Outcome Automation
+### SOAR & Outcome Automation
 Sentra turns insights into specific actions:
 - **AI-Recommended Actions**: Every signal include a context-aware "Recommended Action" (e.g., "Verify authorization" or "Block IP").
 - **Priority Alerts**: Integrated notification system (`notify.py`) for Slack or Webhook delivery of high-risk signals.
