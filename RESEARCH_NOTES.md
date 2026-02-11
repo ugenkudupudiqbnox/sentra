@@ -1,4 +1,78 @@
 ```
+Raw Log
+   ↓
+Kafka (single source of truth)
+   ↓
+Stream Processing / Signal Factory
+   ├──► Elastic        (only if searchable)
+   ├──► ClickHouse     (only aggregates)
+   ├──► Vector DB      (only embeddings)
+   └──► AI Control     (only signals)
+```
+```
+| System           | Receives raw logs? | What it actually stores    |
+| ---------------- | ------------------ | -------------------------- |
+| Kafka            | ✅ YES              | Raw logs (short retention) |
+| Elastic          | ⚠️ SELECTIVE       | Searchable security logs   |
+| ClickHouse       | ❌ NO               | Aggregates & rollups       |
+| Vector DB        | ❌ NO               | Embeddings of signals      |
+| AI Control Plane | ❌ NO               | Decisions & narratives     |
+
+| System           | Hot/Warm/Cold needed? | Why                          |
+| ---------------- | --------------------- | ---------------------------- |
+| Kafka            | ❌ No                  | Retention buffer, not search |
+| Elastic          | ✅ Yes                 | Cost + performance           |
+| ClickHouse       | ⚠️ Partial            | TTL & rollups instead        |
+| Vector DB        | ❌ No                  | Semantic memory, small       |
+| AI Control Plane | ❌ No                  | Decision ledger              |
+
+```
+## Cost math (why this matters)
+
+If you naïvely fan-out:
+
+* 10 PB logs → (10 x 5 systems) 50 PB stored
+* Unmanageable
+* Splunk-level pricing
+
+Why this recreates Splunk economics exactly
+
+A Splunk Indexer does all of this inside one product:
+
+* Ingest
+* Index
+* Store
+* Search
+* Replicate
+
+Naïve fan-out does the same thing, just across five products (instead of 5 systems).
+
+If you do it right:
+
+* 10 PB raw (cheap object/Kafka tiered)
+* 100–300 TB hot search
+* <10 TB vectors
+* <50 TB analytics
+
+That’s order-of-magnitude cheaper.
+
+## Why Splunk overbuilt indexers
+
+Splunk assumed:
+
+```
+Search = primary workflow
+```
+## Modern SOC reality:
+
+```
+Signals & AI = primary workflow
+Search = escalation path
+```
+
+Once you internalize this, the cost model collapses in your favor.
+
+```
                            ┌───────────────────────────┐
                            │     DATA COLLECTION       │
                            │ (Agents / Collectors)     │
@@ -208,6 +282,36 @@ Enrichment is where a raw log event earns its "Security Signal" status. In our A
 ### 3. Behavioral Enrichment (Contextual)
 - **Frequency Analysis**: "User has run `sudo` 5 times in the last 10 minutes (3σ above baseline)."
 - **Vector Similarity**: "This command pattern is 92% similar to a known data-exfiltration TTP in our Vector DB."
+
+---
+
+## 🏗️ System Module Boundaries
+
+Sentra is organized into four logical layers with strict boundaries to ensure scalability and maintainability:
+
+### 1. Ingestion / Parser Layer
+- **Responsibility**: Raw log collection and normalization.
+- **Components**: `parse_auth_log.py` (Local), Kafka Connectors (PB-scale).
+- **Output**: Structured JSON events with standardized timestamps (RFC5424/ISO8601).
+- **Boundary**: Does not perform security analysis; only ensures data types and schemas are correct.
+
+### 2. Signal Abstraction Layer
+- **Responsibility**: Behavioral aggregation and contextual enrichment.
+- **Components**: Flink Stream processors, `COMMAND_INTENT_MAP`.
+- **Logic**: Maps "commands" to "intents" and "compliance controls". Groups events into behavioral windows (10m/1h).
+- **Boundary**: Produces vectorized signals. It knows "what" happened but doesn't yet explain "why" to a human.
+
+### 3. Summarizer / Narrative Generator
+- **Responsibility**: Human-first synthesis of signal patterns.
+- **Components**: `ai_engine.py`, OpenAI/LLM integration.
+- **Logic**: Consumes a "signal cluster" and generates a natural language narrative and executive recommendation.
+- **Boundary**: Operates only on signals, never on raw logs. Provides the "Meaning" and "Response" logic.
+
+### 4. Evaluation / Ground Truth Reference
+- **Responsibility**: Quality control and probabilistic calibration.
+- **Components**: `overrides.json`, Analyst Feedback loop, Risk scoring models.
+- **Logic**: Compares AI-generated narratives against historical "reviewed" signals to reduce false positives.
+- **Boundary**: Acts as the system's "Self-Correction" layer, preventing LLM hallucinations and alert fatigue.
 
 ---
 
